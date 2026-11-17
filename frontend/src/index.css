@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-primary: #2ED3C2;
+  --brand-primary-deep: #0D9488;
+  --bizwave-navy: #041527;
+  --bizwave-navy-card: #081F37;
+  --portal-canvas: #F4F7FA;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    background-color: var(--bizwave-navy);
+    color: #0F172A;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+  h1, h2, h3, h4 {
+    letter-spacing: -0.024em;
+  }
+}
+
+/* Presentation-matched Midnight Navy glass & surfaces */
+.navy-glass {
+  background: rgba(4, 21, 39, 0.86);
+  backdrop-filter: saturate(180%) blur(18px);
+  -webkit-backdrop-filter: saturate(180%) blur(18px);
+}
+
+.slide-card {
+  background: linear-gradient(180deg, rgba(10, 34, 60, 0.92) 0%, rgba(6, 24, 44, 0.96) 100%);
+  border: 1px solid rgba(46, 211, 194, 0.18);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.slide-card:hover {
+  border-color: rgba(46, 211, 194, 0.42);
+}
+
+.teal-bar {
+  height: 3px;
+  width: 56px;
+  border-radius: 9999px;
+  background-color: #2ED3C2;
+}
+
+.brand-btn {
+  background-color: var(--brand-primary-deep);
+}
+.brand-btn:hover {
+  filter: brightness(0.93);
+}

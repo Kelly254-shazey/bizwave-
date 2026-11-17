@@ -1,0 +1,12 @@
+.env
+.env.production
+.env.local
+node_modules/
+dist/
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.dump
+uploads/
+infrastructure/nginx/active.conf
