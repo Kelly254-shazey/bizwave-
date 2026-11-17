@@ -50,8 +50,11 @@ export const TeamPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-extrabold text-navy-950">Team &amp; Granular RBAC Permissions</h1>
-        <p className="text-sm text-slate-500">Manage business roles, branch-scoped access controls, and permission boundaries.</p>
+        <div className="text-xs font-bold uppercase tracking-wider text-teal-600">Right Access For Every Role</div>
+        <h1 className="mt-1 text-2xl font-extrabold text-navy-950">Team &amp; Branch Permissions</h1>
+        <p className="text-sm text-slate-500">
+          Give owners, branch managers, and customer care staff only the screens and branches they need — keeping sensitive financials protected.
+        </p>
       </div>
 
       {msg && <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs font-medium">{msg}</div>}

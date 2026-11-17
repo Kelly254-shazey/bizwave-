@@ -131,10 +131,10 @@ export const PredictPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wider text-teal-600">Python Statistical Intelligence Engine</div>
+          <div className="text-xs font-bold uppercase tracking-wider text-teal-600">Look Ahead Before Problems Hit</div>
           <h1 className="mt-1 text-2xl font-extrabold text-navy-950">BizWave Predict</h1>
           <p className="text-sm text-slate-500">
-            Backtested sales forecasting, stockout-aware demand planning, obligation-aware cash-flow projections, and anomaly detection.
+            Forecast upcoming sales, stock demand, and 30-day cash flow, spot unusual spikes or dips early, and identify customers at risk of churning.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

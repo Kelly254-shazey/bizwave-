@@ -68,8 +68,11 @@ export const ReportsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-extrabold text-navy-950">Management Reports &amp; Exports</h1>
-        <p className="text-sm text-slate-500">Generate auditable business reports directly from PostgreSQL and export clean CSV files.</p>
+        <div className="text-xs font-bold uppercase tracking-wider text-teal-600">Decision-Ready Business Summaries</div>
+        <h1 className="mt-1 text-2xl font-extrabold text-navy-950">Reports &amp; Exports</h1>
+        <p className="text-sm text-slate-500">
+          Generate clean sales, profit, stock, and expense reports in one click for partners, lenders, or monthly reviews.
+        </p>
       </div>
 
       {msg && <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs font-medium">{msg}</div>}

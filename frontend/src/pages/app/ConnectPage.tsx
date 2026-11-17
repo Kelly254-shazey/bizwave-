@@ -133,9 +133,10 @@ export const ConnectPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold text-navy-950">BizWave Connect &amp; Customer CRM</h1>
+          <div className="text-xs font-bold uppercase tracking-wider text-teal-600">Turn Insights Into Customer Action</div>
+          <h1 className="mt-1 text-2xl font-extrabold text-navy-950">BizWave Connect</h1>
           <p className="text-sm text-slate-500">
-            SMS, WhatsApp, Voice &amp; USSD adapters with Kenya DPA 2019 consent enforcement and honest delivery reconciliation.
+            Reach opted-in customers via SMS, WhatsApp, Voice, and USSD with Kenya DPA consent controls and measurable interaction analytics.
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5 bg-white p-1 rounded-xl border border-slate-200">

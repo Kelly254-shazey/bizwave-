@@ -80,8 +80,11 @@ export const SettingsPage: React.FC = () => {
   return (
     <div className="space-y-6 max-w-5xl">
       <div>
-        <h1 className="text-2xl font-extrabold text-navy-950">Workspace Personalization, Branches &amp; Security</h1>
-        <p className="text-sm text-slate-500">Configure your brand identity, industry template, branches, TOTP MFA, and active sessions.</p>
+        <div className="text-xs font-bold uppercase tracking-wider text-teal-600">Your Workspace, Your Rules</div>
+        <h1 className="mt-1 text-2xl font-extrabold text-navy-950">Workspace &amp; Security Settings</h1>
+        <p className="text-sm text-slate-500">
+          Customize your business identity, manage branches, protect logins with 2-factor authentication (MFA), and monitor active sessions.
+        </p>
       </div>
 
       {msg && <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs font-medium">{msg}</div>}
