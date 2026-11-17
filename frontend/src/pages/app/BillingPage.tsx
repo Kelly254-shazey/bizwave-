@@ -59,9 +59,10 @@ export const BillingPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold text-navy-950">BizWave Subscription &amp; Platform Services</h1>
+          <div className="text-xs font-bold uppercase tracking-wider text-teal-600">Transparent Plan &amp; Add-On Control</div>
+          <h1 className="mt-1 text-2xl font-extrabold text-navy-950">BizWave Subscription &amp; Platform Services</h1>
           <p className="text-sm text-slate-500">
-            Manage your monthly KES plan, usage quotas, and optional BizWave platform services.
+            Manage your monthly KES plan, usage limits, and optional BizWave add-on services — with zero customer payments handled here.
           </p>
         </div>
       </div>

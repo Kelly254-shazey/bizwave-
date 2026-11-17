@@ -47,6 +47,13 @@ export const AnalyticsPage: React.FC = () => {
     setErr('');
   };
 
+  useEffect(() => {
+    const qTab = searchParams.get('tab');
+    if ((qTab === 'sales' || qTab === 'inventory' || qTab === 'finance' || qTab === 'imports') && qTab !== tab) {
+      setTab(qTab);
+    }
+  }, [searchParams]);
+
   const loadData = async () => {
     setErr('');
     try {
@@ -211,9 +218,10 @@ export const AnalyticsPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold text-navy-950">BizWave Analytics — Record &amp; Analyse</h1>
+          <div className="text-xs font-bold uppercase tracking-wider text-teal-600">Every Shilling &amp; Stock Unit in One Place</div>
+          <h1 className="mt-1 text-2xl font-extrabold text-navy-950">BizWave Analytics — Record &amp; Analyse</h1>
           <p className="text-sm text-slate-500">
-            Record or import sales, M-Pesa logs, stock, and expenses for KPIs &amp; decision making (no customer payments are processed here).
+            Record or upload sales, M-Pesa logs, stock, and expenses to see clear profit and performance — no customer payments pass through here.
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5 bg-white p-1 rounded-xl border border-slate-200">

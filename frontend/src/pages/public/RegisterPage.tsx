@@ -106,6 +106,11 @@ export const RegisterPage: React.FC = () => {
               <li className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-[#2ED3C2]" /> Only BizWave subscription &amp; add-on services are billed.</li>
               <li className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-[#2ED3C2]" /> You own 100% of your uploaded business data.</li>
             </ul>
+            <div className="pt-1">
+              <Link to="/pricing" className="font-bold text-[#2ED3C2] hover:underline">
+                Compare KES plans &amp; add-on services →
+              </Link>
+            </div>
           </div>
         </div>
 

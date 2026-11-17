@@ -37,6 +37,10 @@ export class DatabaseService implements OnModuleDestroy {
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
     });
+    // Prevent idle PG disconnects or failovers from crashing the Node process
+    this.pool.on('error', (err) => {
+      console.warn('[DatabaseService] Idle pool client error (auto-recovering):', err.message);
+    });
   }
 
   async onModuleDestroy() {

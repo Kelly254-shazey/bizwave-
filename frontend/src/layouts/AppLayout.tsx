@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   BarChart3,
@@ -46,19 +46,29 @@ export const AppLayout: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any | null>(null);
   const [showNotif, setShowNotif] = useState(false);
+  const searchTimerRef = useRef<number | null>(null);
 
-  const handleSearch = async (val: string) => {
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) window.clearTimeout(searchTimerRef.current);
+    };
+  }, []);
+
+  const handleSearch = (val: string) => {
     setSearchQuery(val);
+    if (searchTimerRef.current) window.clearTimeout(searchTimerRef.current);
     if (val.trim().length < 2) {
       setSearchResults(null);
       return;
     }
-    try {
-      const res = await apiRequest(`/analytics/search?q=${encodeURIComponent(val.trim())}`);
-      setSearchResults(res);
-    } catch {
-      setSearchResults(null);
-    }
+    searchTimerRef.current = window.setTimeout(async () => {
+      try {
+        const res = await apiRequest(`/analytics/search?q=${encodeURIComponent(val.trim())}`);
+        setSearchResults(res);
+      } catch {
+        setSearchResults(null);
+      }
+    }, 250);
   };
 
   // Streamlined 4-Pillar SME Client Portal Navigation (Zero clutter, zero Learn/Community)
@@ -287,10 +297,18 @@ export const AppLayout: React.FC = () => {
                     <div>
                       <div className="font-semibold text-slate-400 uppercase text-[10px] mb-1">Products</div>
                       {searchResults.products.map((p: any) => (
-                        <div key={p.id} className="py-1 flex justify-between text-slate-700">
+                        <button
+                          key={p.id}
+                          type="button"
+                          onMouseDown={() => {
+                            setSearchResults(null);
+                            navigate('/app/analytics?tab=inventory');
+                          }}
+                          className="w-full py-1.5 px-2 rounded-lg hover:bg-slate-50 flex justify-between text-slate-700 text-left"
+                        >
                           <span>{p.name}</span>
-                          <span className="font-medium">{formatKes(p.selling_price)}</span>
-                        </div>
+                          <span className="font-medium text-teal-700">{formatKes(p.selling_price)}</span>
+                        </button>
                       ))}
                     </div>
                   )}
@@ -298,10 +316,18 @@ export const AppLayout: React.FC = () => {
                     <div>
                       <div className="font-semibold text-slate-400 uppercase text-[10px] mb-1">Customers</div>
                       {searchResults.customers.map((c: any) => (
-                        <div key={c.id} className="py-1 flex justify-between text-slate-700">
+                        <button
+                          key={c.id}
+                          type="button"
+                          onMouseDown={() => {
+                            setSearchResults(null);
+                            navigate('/app/connect');
+                          }}
+                          className="w-full py-1.5 px-2 rounded-lg hover:bg-slate-50 flex justify-between text-slate-700 text-left"
+                        >
                           <span>{c.full_name}</span>
                           <span className="text-slate-400">{c.phone_number}</span>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   )}
@@ -309,10 +335,18 @@ export const AppLayout: React.FC = () => {
                     <div>
                       <div className="font-semibold text-slate-400 uppercase text-[10px] mb-1">Recorded Sales</div>
                       {searchResults.sales.map((s: any) => (
-                        <div key={s.id} className="py-1 flex justify-between text-slate-700">
+                        <button
+                          key={s.id}
+                          type="button"
+                          onMouseDown={() => {
+                            setSearchResults(null);
+                            navigate('/app/analytics?tab=sales');
+                          }}
+                          className="w-full py-1.5 px-2 rounded-lg hover:bg-slate-50 flex justify-between text-slate-700 text-left"
+                        >
                           <code>{s.transaction_ref}</code>
-                          <span className="font-medium">{formatKes(s.total_amount)}</span>
-                        </div>
+                          <span className="font-medium text-teal-700">{formatKes(s.total_amount)}</span>
+                        </button>
                       ))}
                     </div>
                   )}
@@ -347,10 +381,21 @@ export const AppLayout: React.FC = () => {
               </button>
               {showNotif && (
                 <div className="absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-xl p-3.5 z-50 text-xs space-y-2">
-                  <div className="font-semibold text-navy-950">Decision Alerts</div>
-                  <div className="p-2.5 rounded-lg bg-amber-50 text-amber-900 border border-amber-200/60">
-                    Check <strong>Analytics → Inventory</strong> for low-stock replenishment needs.
-                  </div>
+                  <div className="font-semibold text-navy-950">Decision Shortcuts</div>
+                  <Link
+                    to="/app/analytics?tab=inventory"
+                    onClick={() => setShowNotif(false)}
+                    className="block p-2.5 rounded-lg bg-amber-50 hover:bg-amber-100/80 text-amber-900 border border-amber-200/60 transition-colors"
+                  >
+                    Check <strong>Analytics → Inventory</strong> for low-stock replenishment needs →
+                  </Link>
+                  <Link
+                    to="/app/ai"
+                    onClick={() => setShowNotif(false)}
+                    className="block p-2.5 rounded-lg bg-teal-50 hover:bg-teal-100/80 text-teal-900 border border-teal-200/60 transition-colors"
+                  >
+                    Open <strong>BizWave AI</strong> for today&apos;s executive health briefing →
+                  </Link>
                   <div className="p-2.5 rounded-lg bg-slate-50 text-slate-600">
                     Isolated tenant security active for <strong>{activeOrg?.display_name}</strong>.
                   </div>

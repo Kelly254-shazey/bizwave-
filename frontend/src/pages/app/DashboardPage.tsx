@@ -74,14 +74,17 @@ export const DashboardPage: React.FC = () => {
       {/* Header + Period Selector */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider" style={{ color: brandColor }}>
-            <span className="capitalize">{industryLabel} Adaptive Workspace</span>
+          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider" style={{ color: brandColor }}>
+            <span className="capitalize">{industryLabel} Daily Command Center</span>
             <span>·</span>
             <span className="capitalize">{activeOrg?.roles[0]?.replace(/_/g, ' ')} View</span>
           </div>
           <h1 className="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight text-navy-950">
             {activeOrg?.display_name}
           </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Your live business pulse — revenue, profit, stock alerts, and priority actions at a glance.
+          </p>
         </div>
 
         <div className="flex items-center gap-2">

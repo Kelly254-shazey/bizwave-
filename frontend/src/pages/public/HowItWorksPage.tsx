@@ -20,6 +20,8 @@ export const HowItWorksPage: React.FC = () => (
         <img
           src="/images/workflow-restaurant-tablet.jpg"
           alt="Kenyan restaurant manager checking demand forecast and stock alerts on tablet"
+          fetchPriority="high"
+          decoding="async"
           className="w-full h-full object-cover object-right opacity-75"
         />
         <div className="absolute inset-0 bg-gradient-to-r from-[#041527] via-[#041527]/94 to-[#041527]/30" />
@@ -162,12 +164,18 @@ export const HowItWorksPage: React.FC = () => (
         </div>
       </div>
 
-      <div className="mt-12 text-center">
+      <div className="mt-12 text-center flex flex-wrap justify-center gap-4">
         <Link
           to="/register"
           className="inline-flex items-center gap-2 px-7 py-3.5 rounded-lg bg-[#2ED3C2] text-[#041527] text-sm font-bold hover:bg-[#5ce2d4]"
         >
           Start Your Workspace Now <ArrowRight className="w-4 h-4" />
+        </Link>
+        <Link
+          to="/pricing"
+          className="inline-flex items-center gap-2 px-7 py-3.5 rounded-lg border border-white/25 text-white text-sm font-semibold hover:bg-white/10"
+        >
+          View Plans &amp; Pricing
         </Link>
       </div>
     </section>

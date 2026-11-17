@@ -45,6 +45,8 @@ export const ContactPage: React.FC = () => {
           <img
             src="/images/contact-partnership.jpg"
             alt="Nairobi business partnership handshake overlooking city skyline"
+            fetchPriority="high"
+            decoding="async"
             className="w-full h-full object-cover object-right opacity-70"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-[#041527] via-[#041527]/94 to-[#041527]/35" />

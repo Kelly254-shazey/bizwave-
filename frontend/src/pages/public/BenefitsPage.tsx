@@ -107,6 +107,8 @@ export const BenefitsPage: React.FC = () => {
           <img
             src="/images/benefits-clarity.jpg"
             alt="Smiling Kenyan retail owner reviewing calm business metrics on phone and laptop"
+            fetchPriority="high"
+            decoding="async"
             className="w-full h-full object-cover object-right opacity-80"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-[#041527] via-[#041527]/94 to-[#041527]/25" />
@@ -219,9 +221,9 @@ export const BenefitsPage: React.FC = () => {
           </ul>
 
           <div className="mt-8 pt-6 border-t border-white/10 flex flex-wrap items-center justify-between gap-4">
-            <span className="text-xs text-slate-400">
-              Record &amp; Analyse only — BizWave never holds or processes your customer payments.
-            </span>
+            <Link to="/pricing" className="text-xs font-bold text-[#2ED3C2] hover:underline">
+              Explore modular KES plans &amp; add-on services →
+            </Link>
             <Link
               to="/register"
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#2ED3C2] text-[#041527] text-xs font-bold hover:bg-[#5ce2d4]"

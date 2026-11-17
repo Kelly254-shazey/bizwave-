@@ -183,13 +183,14 @@ export const AiAssistantPage: React.FC = () => {
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-[#2ED3C2]">Ask Anything About Your Numbers</div>
             <h1 className="text-base sm:text-lg font-extrabold text-white">BizWave AI — Executive Decision Copilot</h1>
             <p className="text-xs text-slate-300">
-              Grounded in your live PostgreSQL sales, M-Pesa records, stock, expenses &amp; forecasts ·{' '}
+              Ask in plain English or Kiswahili — every answer is verified directly against your live sales, M-Pesa, stock, and expense records ·{' '}
               <span className="text-[#2ED3C2] font-semibold">
                 {status?.externalLlmEnabled
-                  ? `Hybrid LLM (${status.externalLlmModel}) + SQL`
-                  : 'SQL Analytics + Python Advisor Engine'}
+                  ? `Hybrid AI (${status.externalLlmModel})`
+                  : 'Verified Data & Advisory Engine'}
               </span>
             </p>
           </div>

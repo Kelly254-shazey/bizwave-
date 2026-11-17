@@ -266,7 +266,7 @@ export class AiController {
           `SELECT
              (SELECT COALESCE(SUM(opening_balance), 0)::float FROM cash_accounts WHERE tenant_id = $1) AS cash_balance,
              (SELECT COALESCE(SUM(amount_due - amount_paid), 0)::float FROM payables WHERE tenant_id = $1 AND status <> 'paid') AS payables,
-             (SELECT COALESCE(SUM(amount_due - amount_received), 0)::float FROM receivables WHERE tenant_id = $1 AND status <> 'paid') AS receivables`,
+             (SELECT COALESCE(SUM(amount_due - amount_paid), 0)::float FROM receivables WHERE tenant_id = $1 AND status <> 'paid') AS receivables`,
           [ctx.tenantId],
         )
       ).rows;
@@ -587,7 +587,7 @@ export class AiController {
           `SELECT
              (SELECT COALESCE(SUM(opening_balance), 0)::float FROM cash_accounts WHERE tenant_id = $1) AS cash_balance,
              (SELECT COALESCE(SUM(amount_due - amount_paid), 0)::float FROM payables WHERE tenant_id = $1 AND status <> 'paid') AS payables,
-             (SELECT COALESCE(SUM(amount_due - amount_received), 0)::float FROM receivables WHERE tenant_id = $1 AND status <> 'paid') AS receivables`,
+             (SELECT COALESCE(SUM(amount_due - amount_paid), 0)::float FROM receivables WHERE tenant_id = $1 AND status <> 'paid') AS receivables`,
           [ctx.tenantId],
         );
         const [cust] = await runTool(
