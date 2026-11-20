@@ -14,6 +14,7 @@ import {
 } from '../common/decorators/auth.decorators';
 import { DatabaseService } from '../database/database.service';
 import { AuthenticatedUser, TenantAuthContext } from '../common/types/auth.types';
+import { effectivePortalFeatures } from '../common/portal-features';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -99,7 +100,7 @@ export class TenantRbacGuard implements CanActivate {
        FROM user_roles ur
        JOIN role_permissions rp ON rp.role_id = ur.role_id
        JOIN permissions p ON p.id = rp.permission_id
-       WHERE ur.user_id = $1 AND ur.tenant_id = $2 AND ur.is_active = TRUE`,
+       WHERE ur.user_id = $1 AND ur.tenant_id = $2 AND ur.is_active = TRUE AND (ur.expires_at IS NULL OR ur.expires_at > NOW())`,
       [user.userId, targetTenantId],
     );
     const permissions = permRes.rows.map((r) => r.code as string);
@@ -148,7 +149,7 @@ export class TenantRbacGuard implements CanActivate {
     );
 
     const planCode = (subRes.rows[0]?.plan_code || 'starter') as TenantAuthContext['planCode'];
-    const enabledFeatures: string[] = subRes.rows[0]?.features || ['analytics_core', 'manual_imports'];
+    const enabledFeatures = effectivePortalFeatures(subRes.rows[0]?.features || ['analytics_core', 'manual_imports']);
 
     const tenantCtx: TenantAuthContext = {
       tenantId: targetTenantId!,

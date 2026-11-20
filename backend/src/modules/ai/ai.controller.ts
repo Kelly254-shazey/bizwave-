@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { DatabaseService } from '../../database/database.service';
 import { envConfig } from '../../config/env.config';
@@ -24,6 +24,10 @@ const INJECTION_PATTERNS = [
 
 type Intent =
   | 'executive_briefing'
+  | 'pro_scientist_audit'
+  | 'forecast_graph'
+  | 'pie_chart_breakdown'
+  | 'website_catalog_insights'
   | 'what_if_simulation'
   | 'sales_drop'
   | 'mpesa_payment_mix'
@@ -40,6 +44,20 @@ function detectIntent(text: string): Intent {
   const q = text.toLowerCase();
   if (/(what if|scenario|simulat|increase price|raise price|cut expense|reduce cost|nikiongeza bei|nikipunguza gharama|jaribu)/.test(q)) {
     return 'what_if_simulation';
+  }
+  if (/(website|web catalog|online store|site sync|tovuti)/.test(q)) {
+    return 'website_catalog_insights';
+  }
+  if (/(forecast|predict|next 14|next 30|future sales|projection|utabiri|tabiri)/.test(q)) {
+    return 'forecast_graph';
+  }
+  if (/(data scientist|break.?even|breakeven|formula|calculat|pareto|hhi|stability|seasonality|statistical|hesabu|uchambuzi wa kina)/.test(q)) {
+    return 'pro_scientist_audit';
+  }
+  if (/(pie\s*chart|donut|chati ya duara)/.test(q)) {
+    if (/(expense|cost|spend|gharama|matumizi)/.test(q)) return 'expense_audit';
+    if (/(m-?pesa|payment|cash|malipo)/.test(q)) return 'mpesa_payment_mix';
+    return 'pie_chart_breakdown';
   }
   if (/(briefing|health score|morning|status|overview|ripoti ya leo|hali ya biashara|afya ya biashara)/.test(q)) {
     return 'executive_briefing';
@@ -89,14 +107,6 @@ function parseWhatIfParams(text: string): {
   const volMatch = q.match(/(?:volume|orders|sales|oda|mauzo)[^0-9+-]{0,20}([+-]?\d+(?:\.\d+)?)\s*%/);
   if (volMatch) volume = Number(volMatch[1]);
 
-  if (/(stockout|restock|stoo)/.test(q)) stockout = 5;
-
-  // Smart default balanced scenario if user asks "what if" without numbers
-  if (price === 0 && volume === 0 && expense === 0 && stockout === 0) {
-    price = 5;
-    expense = -10;
-    stockout = 4;
-  }
 
   return {
     price_change_pct: Math.max(-50, Math.min(50, price)),
@@ -118,6 +128,34 @@ export class AiController {
     private readonly db: DatabaseService,
     private readonly msingi: MsingiLanguageService,
   ) {}
+
+  private conversationScope(ctx: TenantAuthContext) {
+    return { version: 1, permissions: [...ctx.permissions].sort(), branchIds: ctx.allowedBranchIds === null ? null : [...ctx.allowedBranchIds].sort() };
+  }
+
+  private mayReadConversation(ctx: TenantAuthContext, scope: any): boolean {
+    // Legacy conversations do not carry a scope. Fail closed instead of revealing
+    // historical answers written before a role or branch assignment changed.
+    if (!scope || scope.version !== 1 || !Array.isArray(scope.permissions) ||
+        !(scope.branchIds === null || Array.isArray(scope.branchIds))) return false;
+    if (!scope.permissions.every((permission: any) => typeof permission === 'string' && ctx.permissions.includes(permission))) return false;
+    if (scope.branchIds === null) return ctx.allowedBranchIds === null;
+    return ctx.allowedBranchIds === null || scope.branchIds.every((id: any) => typeof id === 'string' && ctx.allowedBranchIds!.includes(id));
+  }
+
+  private hasSameConversationScope(ctx: TenantAuthContext, scope: any): boolean {
+    if (!this.mayReadConversation(ctx, scope)) return false;
+    const current = this.conversationScope(ctx);
+    if (JSON.stringify([...scope.permissions].sort()) !== JSON.stringify(current.permissions)) return false;
+    return (scope.branchIds === null && current.branchIds === null) ||
+      (Array.isArray(scope.branchIds) && Array.isArray(current.branchIds) &&
+       JSON.stringify([...scope.branchIds].sort()) === JSON.stringify(current.branchIds));
+  }
+
+  private publicConversation(row: any) {
+    const { security_scope, ...conversation } = row;
+    return conversation;
+  }
 
   private hasExternalLlm(): boolean {
     return Boolean(envConfig.llmApiKey && envConfig.llmApiKey.trim().length >= 10);
@@ -233,129 +271,71 @@ export class AiController {
    * Instant Executive Health Briefing combining live PostgreSQL KPIs + Python Advisor scoring.
    */
   @Get('briefing')
-  @RequirePermissions('analytics:read')
-  async executiveBriefing(
-    @Query('branchId') branchId: string | undefined,
-    @TenantCtx() ctx: TenantAuthContext,
-  ) {
-    const effectiveBranch = branchId && branchId !== 'all' ? branchId : null;
+  @RequirePermissions('analytics:read', 'sales:read')
+  async executiveBriefing(@Query('branchId') branchId: string | undefined, @TenantCtx() ctx: TenantAuthContext) {
+    const branch = branchId && branchId !== 'all' ? branchId : null;
     return this.db.withTenant(ctx.tenantId, async (client) => {
-      const [currKpi] = (
-        await client.query(`SELECT * FROM fn_calculate_business_kpis($1, $2::uuid, CURRENT_DATE - 30, CURRENT_DATE)`, [
-          ctx.tenantId,
-          effectiveBranch,
-        ])
-      ).rows;
-      const [prevKpi] = (
-        await client.query(`SELECT * FROM fn_calculate_business_kpis($1, $2::uuid, CURRENT_DATE - 60, CURRENT_DATE - 31)`, [
-          ctx.tenantId,
-          effectiveBranch,
-        ])
-      ).rows;
-      const [inv] = (
-        await client.query(
-          `SELECT COUNT(*)::int AS total_products,
-                  COUNT(*) FILTER (WHERE stock_status = 'stockout')::int AS stockout_count,
-                  COUNT(*) FILTER (WHERE stock_status = 'low_stock')::int AS low_stock_count
-           FROM vw_inventory_status WHERE tenant_id = $1 AND ($2::uuid IS NULL OR branch_id = $2::uuid)`,
-          [ctx.tenantId, effectiveBranch],
-        )
-      ).rows;
-      const [fin] = (
-        await client.query(
-          `SELECT
-             (SELECT COALESCE(SUM(opening_balance), 0)::float FROM cash_accounts WHERE tenant_id = $1) AS cash_balance,
-             (SELECT COALESCE(SUM(amount_due - amount_paid), 0)::float FROM payables WHERE tenant_id = $1 AND status <> 'paid') AS payables,
-             (SELECT COALESCE(SUM(amount_due - amount_paid), 0)::float FROM receivables WHERE tenant_id = $1 AND status <> 'paid') AS receivables`,
-          [ctx.tenantId],
-        )
-      ).rows;
-      const [cust] = (
-        await client.query(
-          `SELECT
-             COUNT(*) FILTER (WHERE total_orders > 0 AND COALESCE(days_since_last_purchase, 0) < 30)::int AS active_customers,
-             COUNT(*) FILTER (WHERE total_orders > 0 AND COALESCE(days_since_last_purchase, 0) >= 30)::int AS churn_risk_customers
-           FROM vw_customer_purchase_summary WHERE tenant_id = $1`,
-          [ctx.tenantId],
-        )
-      ).rows;
-
-      const diagPayload = {
-        current_revenue: Number(currKpi?.total_revenue || 0),
-        previous_revenue: Number(prevKpi?.total_revenue || 0),
-        current_orders: Number(currKpi?.order_count || 0),
-        previous_orders: Number(prevKpi?.order_count || 0),
-        gross_profit: Number(currKpi?.gross_profit || 0),
-        expenses: Number(currKpi?.total_expenses || 0),
-        cash_balance: Number(fin?.cash_balance || 0),
-        payables: Number(fin?.payables || 0),
-        receivables: Number(fin?.receivables || 0),
-        stockout_count: Number(inv?.stockout_count || 0),
-        low_stock_count: Number(inv?.low_stock_count || 0),
-        total_products: Number(inv?.total_products || 0),
-        active_customers: Number(cust?.active_customers || 0),
-        churn_risk_customers: Number(cust?.churn_risk_customers || 0),
-      };
-
-      const diagnostics = await this.callIntelligence('/v1/advisor/diagnose', diagPayload);
-
-      return {
-        organization: ctx.tenantName,
-        period: 'Last 30 days vs Prior 30 days',
-        hasData: diagPayload.current_revenue > 0 || diagPayload.expenses > 0 || diagPayload.total_products > 0,
-        snapshot: diagPayload,
-        diagnostics,
-        generatedAt: new Date().toISOString(),
-      };
+      const sales = await client.query(`SELECT COUNT(*)::int AS records, COALESCE(SUM(total_amount),0)::float AS revenue,
+        COALESCE(SUM(cost_of_goods_sold),0)::float AS costs,
+        COUNT(*) FILTER (WHERE cost_basis='unknown')::int AS unknown_costs,
+        COUNT(*) FILTER (WHERE cost_basis='estimated')::int AS estimated_costs
+        FROM sales WHERE tenant_id=$1 AND payment_status NOT IN ('reversed','refunded')
+          AND ($2::uuid IS NULL OR branch_id=$2::uuid) AND ($3::uuid[] IS NULL OR branch_id=ANY($3::uuid[]))
+          AND (transaction_date AT TIME ZONE 'Africa/Nairobi')::date BETWEEN (NOW() AT TIME ZONE 'Africa/Nairobi')::date - 29 AND (NOW() AT TIME ZONE 'Africa/Nairobi')::date`,
+        [ctx.tenantId, branch, ctx.allowedBranchIds]);
+      const row = sales.rows[0];
+      const finance = ctx.permissions.includes('finance:read');
+      const exp = finance ? await client.query(`SELECT COUNT(*)::int AS records, COALESCE(SUM(amount),0)::float AS total
+        FROM expenses WHERE tenant_id=$1 AND ($2::uuid IS NULL OR branch_id=$2::uuid)
+        AND ($3::uuid[] IS NULL OR branch_id=ANY($3::uuid[]))
+        AND expense_date BETWEEN (NOW() AT TIME ZONE 'Africa/Nairobi')::date - 29 AND (NOW() AT TIME ZONE 'Africa/Nairobi')::date`,
+        [ctx.tenantId, branch, ctx.allowedBranchIds]) : null;
+      const costKnown = finance && Number(row.records) > 0 && Number(row.unknown_costs) === 0;
+      return { organization: ctx.tenantName, period: 'Last 30 days', hasData: Number(row.records) > 0,
+        snapshot: { current_revenue: Number(row.revenue), current_orders: Number(row.records),
+          gross_profit: costKnown ? Number(row.revenue) - Number(row.costs) : null,
+          expenses: exp && Number(exp.rows[0].records) > 0 ? Number(exp.rows[0].total) : null,
+          costs_estimated: Number(row.estimated_costs) > 0 },
+        diagnostics: null,
+        note: 'Health scores are unavailable without complete, verified inputs.', generatedAt: new Date().toISOString() };
     });
   }
 
-  /**
-   * Interactive What-If Financial Scenario Simulator grounded in trailing 30-day actuals.
-   */
   @Post('simulate')
   @RequireFeature('ai_assistant')
-  @RequirePermissions('ai:use')
+  @RequirePermissions('ai:use', 'sales:read', 'finance:read')
   async runSimulation(
-    @Body()
-    body: {
-      priceChangePct?: number;
-      volumeChangePct?: number;
-      expenseChangePct?: number;
-      stockoutRecoveryPct?: number;
-      branchId?: string;
-    },
+    @Body() body: { priceChangePct?: number; volumeChangePct?: number; expenseChangePct?: number; stockoutRecoveryPct?: number; branchId?: string },
     @TenantCtx() ctx: TenantAuthContext,
   ) {
-    const effectiveBranch = body.branchId && body.branchId !== 'all' ? body.branchId : null;
+    const branch = body.branchId && body.branchId !== 'all' ? body.branchId : null;
+    const params = [body.priceChangePct ?? 0, body.volumeChangePct ?? 0, body.expenseChangePct ?? 0, body.stockoutRecoveryPct ?? 0].map(Number);
+    if (params.some((n) => !Number.isFinite(n)) || params[0] < -50 || params[0] > 50 || params[1] < -50 || params[1] > 100 || params[2] < -60 || params[2] > 60 || params[3] < 0 || params[3] > 30) {
+      throw new BadRequestException('One or more scenario percentages are outside the allowed range.');
+    }
     return this.db.withTenant(ctx.tenantId, async (client) => {
-      const [kpi] = (
-        await client.query(`SELECT * FROM fn_calculate_business_kpis($1, $2::uuid, CURRENT_DATE - 30, CURRENT_DATE)`, [
-          ctx.tenantId,
-          effectiveBranch,
-        ])
-      ).rows;
-      const rev = Number(kpi?.total_revenue || 0);
-      const gp = Number(kpi?.gross_profit || 0);
-      const cogs = Math.max(0, rev - gp);
-      const exp = Number(kpi?.total_expenses || 0);
-
-      const sim = await this.callIntelligence('/v1/advisor/simulate', {
-        monthly_revenue: rev,
-        monthly_cogs: cogs,
-        monthly_expenses: exp,
-        price_change_pct: Number(body.priceChangePct || 0),
-        volume_change_pct: Number(body.volumeChangePct || 0),
-        expense_change_pct: Number(body.expenseChangePct || 0),
-        stockout_recovery_pct: Number(body.stockoutRecoveryPct || 0),
-      });
-      if (!sim) {
-        throw new BadRequestException('Intelligence simulation service is temporarily unavailable.');
+      const [sales, expense] = await Promise.all([
+        client.query(`SELECT COUNT(*)::int AS records, COALESCE(SUM(total_amount),0)::float AS revenue,
+          COALESCE(SUM(cost_of_goods_sold),0)::float AS costs, COUNT(*) FILTER (WHERE cost_basis='unknown')::int AS unknown_costs,
+          COUNT(*) FILTER (WHERE cost_basis='estimated')::int AS estimated_costs FROM sales
+          WHERE tenant_id=$1 AND payment_status NOT IN ('reversed','refunded')
+          AND ($2::uuid IS NULL OR branch_id=$2::uuid) AND ($3::uuid[] IS NULL OR branch_id=ANY($3::uuid[]))
+          AND (transaction_date AT TIME ZONE 'Africa/Nairobi')::date BETWEEN (NOW() AT TIME ZONE 'Africa/Nairobi')::date - 29 AND (NOW() AT TIME ZONE 'Africa/Nairobi')::date`,
+          [ctx.tenantId, branch, ctx.allowedBranchIds]),
+        client.query(`SELECT COUNT(*)::int AS records, COALESCE(SUM(amount),0)::float AS total FROM expenses
+          WHERE tenant_id=$1 AND ($2::uuid IS NULL OR branch_id=$2::uuid) AND ($3::uuid[] IS NULL OR branch_id=ANY($3::uuid[]))
+          AND expense_date BETWEEN (NOW() AT TIME ZONE 'Africa/Nairobi')::date - 29 AND (NOW() AT TIME ZONE 'Africa/Nairobi')::date`,
+          [ctx.tenantId, branch, ctx.allowedBranchIds]),
+      ]);
+      const k = sales.rows[0]; const e = expense.rows[0];
+      if (!Number(k.records) || Number(k.unknown_costs) || !Number(e.records)) {
+        throw new BadRequestException('Add sales with costs and expense records for the last 30 days before running a profit scenario.');
       }
-      return {
-        hasBaselineData: rev > 0 || exp > 0,
-        simulation: sim,
-      };
+      const sim = await this.callIntelligence('/v1/advisor/simulate', { monthly_revenue: Number(k.revenue), monthly_cogs: Number(k.costs),
+        monthly_expenses: Number(e.total), price_change_pct: params[0], volume_change_pct: params[1], expense_change_pct: params[2], stockout_recovery_pct: params[3] });
+      if (!sim) throw new BadRequestException('Intelligence simulation service is temporarily unavailable.');
+      return { hasBaselineData: true, simulation: sim, baselineCostsEstimated: Number(k.estimated_costs) > 0,
+        note: 'Illustrative scenario, not a forecast. The model assumes a price elasticity of -0.35.' };
     });
   }
 
@@ -378,7 +358,7 @@ export class AiController {
   async listConversations(@TenantCtx() ctx: TenantAuthContext, @CurrentUser() user: AuthenticatedUser) {
     return this.db.withTenant(ctx.tenantId, async (client) => {
       const res = await client.query(
-        `SELECT * FROM ai_conversations WHERE tenant_id = $1 AND user_id = $2 ORDER BY updated_at DESC LIMIT 30`,
+        `SELECT * FROM ai_conversations WHERE tenant_id = $1 AND user_id = $2 ORDER BY updated_at DESC LIMIT 100`,
         [ctx.tenantId, user.userId],
       );
       const tpl = await client.query(
@@ -386,19 +366,23 @@ export class AiController {
         [ctx.industryCode],
       );
       const extraEn = [
-        'Give me my executive business health briefing',
+        'Run a full Data Scientist audit & break-even calculation',
+        'Predict my next 14 days sales with a forecast graph',
+        'Draw a pie chart of my M-Pesa vs cash sales',
+        'Draw a pie chart of my biggest expenses this month',
         'What if I raise prices 8% and cut expenses 10%?',
-        'Break down my recorded M-Pesa vs cash sales',
-        'Where are my biggest expense leaks this month?',
+        'Give me my executive business health briefing',
       ];
       const extraSw = [
-        'Nipe ripoti ya afya ya biashara yangu leo',
+        'Fanya uchambuzi wa kina wa hesabu za faida na break-even',
+        'Tabiri mauzo yangu ya siku 14 zijazo kwa grafu',
+        'Chora chati ya duara ya mauzo ya M-Pesa na pesa taslimu',
+        'Chora chati ya duara ya matumizi makubwa mwezi huu',
         'Nikiongeza bei kwa 8% na kupunguza gharama kwa 10% faida itakuwaje?',
-        'Linganisha rekodi za mauzo ya M-Pesa na pesa taslimu',
-        'Gharama kubwa zaidi mwezi huu ni zipi?',
+        'Nipe ripoti ya afya ya biashara yangu leo',
       ];
       return {
-        conversations: res.rows,
+        conversations: res.rows.filter((row) => this.mayReadConversation(ctx, row.security_scope)).slice(0, 30).map((row) => this.publicConversation(row)),
         suggestedQuestions: {
           en: [...extraEn, ...(tpl.rows[0]?.suggested_questions_en || [])].slice(0, 8),
           sw: [...extraSw, ...(tpl.rows[0]?.suggested_questions_sw || [])].slice(0, 8),
@@ -415,20 +399,28 @@ export class AiController {
     @TenantCtx() ctx: TenantAuthContext,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    const lang = body.language === 'sw' ? 'sw' : 'en';
+    const lang = body?.language === 'sw' ? 'sw' : 'en';
+    const branchId = body?.branchId && body.branchId !== 'all' ? body.branchId : null;
+    if (branchId && (typeof branchId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(branchId))) throw new BadRequestException('Invalid branch.');
+    if (ctx.allowedBranchIds !== null && (!ctx.allowedBranchIds.length || (branchId && !ctx.allowedBranchIds.includes(branchId)))) throw new ForbiddenException('You are not authorized for this branch.');
     return this.db.withTenant(ctx.tenantId, async (client) => {
+      if (branchId) {
+        const branch = await client.query(`SELECT id FROM branches WHERE tenant_id=$1 AND id=$2 AND status='active'`, [ctx.tenantId, branchId]);
+        if (!branch.rowCount) throw new BadRequestException('Branch not found.');
+      }
       const ins = await client.query(
-        `INSERT INTO ai_conversations (tenant_id, user_id, branch_id, title, language)
-         VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+        `INSERT INTO ai_conversations (tenant_id, user_id, branch_id, title, language, security_scope)
+         VALUES ($1,$2,$3,$4,$5,$6::jsonb) RETURNING *`,
         [
           ctx.tenantId,
           user.userId,
-          body.branchId && body.branchId !== 'all' ? body.branchId : null,
-          body.title || (lang === 'sw' ? 'Mazungumzo Mapya ya Biashara' : 'New Business Analysis'),
+          branchId,
+          String(body.title || (lang === 'sw' ? 'Mazungumzo Mapya ya Biashara' : 'New Business Analysis')).slice(0, 200),
           lang,
+          JSON.stringify(this.conversationScope(ctx)),
         ],
       );
-      return { conversation: ins.rows[0] };
+      return { conversation: this.publicConversation(ins.rows[0]) };
     });
   }
 
@@ -445,7 +437,7 @@ export class AiController {
         `SELECT * FROM ai_conversations WHERE tenant_id = $1 AND id = $2 AND user_id = $3`,
         [ctx.tenantId, id, user.userId],
       );
-      if (conv.rowCount === 0) throw new BadRequestException('Conversation not found');
+      if (conv.rowCount === 0 || !this.mayReadConversation(ctx, conv.rows[0].security_scope)) throw new BadRequestException('Conversation not found');
       const msgs = await client.query(
         `SELECT m.*,
                 (SELECT rating FROM ai_response_feedback f WHERE f.message_id = m.id AND f.user_id = $3 LIMIT 1) AS user_rating
@@ -454,7 +446,7 @@ export class AiController {
          ORDER BY m.created_at ASC`,
         [ctx.tenantId, id, user.userId],
       );
-      return { conversation: conv.rows[0], messages: msgs.rows };
+      return { conversation: this.publicConversation(conv.rows[0]), messages: msgs.rows };
     });
   }
 
@@ -473,18 +465,13 @@ export class AiController {
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: any,
   ) {
-    const question = (body?.content || '').trim();
+    const question = typeof body?.content === 'string' ? body.content.trim() : '';
     if (!question || question.length > 1500) {
       throw new BadRequestException('Question must be between 1 and 1500 characters.');
     }
 
-    const lang: 'en' | 'sw' =
-      body.language === 'sw' ||
-      /(kwa nini|bidhaa|mauzo|faida|pesa|tawi|wateja|stoo|nifanye|gharama|matumizi|afya|ripoti|nikiongeza)/.test(
-        question.toLowerCase(),
-      )
-        ? 'sw'
-        : 'en';
+    const lang: 'en' | 'sw' = body.language === 'sw' ? 'sw' : body.language === 'en' ? 'en' :
+      (/\b(kwa nini|bidhaa|mauzo|faida|pesa|tawi|wateja|stoo|nifanye|gharama|matumizi|afya|ripoti|nikiongeza)\b/.test(question.toLowerCase()) ? 'sw' : 'en');
 
     const isInjection = INJECTION_PATTERNS.some((rx) => rx.test(question));
     if (isInjection) {
@@ -513,603 +500,208 @@ export class AiController {
 
     const intent = detectIntent(question);
     const effectiveBranch = body.branchId && body.branchId !== 'all' ? body.branchId : null;
-    const toolsExecuted: { name: string; rows: number; ms: number }[] = [];
+    const canSales = ctx.permissions.includes('sales:read');
+    const canFinance = ctx.permissions.includes('finance:read');
+    const canInventory = ctx.permissions.includes('inventory:read');
+    const canCustomers = ctx.permissions.includes('customers:read');
+    const scope = [ctx.tenantId, effectiveBranch, ctx.allowedBranchIds];
+    const tr = (en: string, sw: string) => lang === 'sw' ? sw : en;
 
     return this.db.withTenant(ctx.tenantId, async (client) => {
       const convRes = await client.query(
         `SELECT * FROM ai_conversations WHERE tenant_id = $1 AND id = $2 AND user_id = $3`,
         [ctx.tenantId, conversationId, user.userId],
       );
-      if (convRes.rowCount === 0) throw new BadRequestException('Conversation not found');
-
-      await client.query(
-        `INSERT INTO ai_messages (tenant_id, conversation_id, role, content, language, intent)
-         VALUES ($1,$2,'user',$3,$4,$5)`,
-        [ctx.tenantId, conversationId, question, lang, intent],
-      );
-
-      if (convRes.rows[0].title.startsWith('New ') || convRes.rows[0].title.startsWith('Mazungumzo')) {
-        await client.query(`UPDATE ai_conversations SET title = $2, language = $3 WHERE id = $1`, [
-          conversationId,
-          question.slice(0, 80),
-          lang,
-        ]);
+      if (!convRes.rowCount || !this.mayReadConversation(ctx, convRes.rows[0].security_scope)) throw new BadRequestException('Conversation not found');
+      // A thread's original scope protects ALL of its messages. Never append an
+      // answer using wider permissions or branches to an older, narrower thread.
+      if (!this.hasSameConversationScope(ctx, convRes.rows[0].security_scope)) {
+        throw new ForbiddenException('Your access has changed. Start a new conversation to use your current access.');
+      }
+      if ((convRes.rows[0].branch_id || null) !== effectiveBranch) {
+        throw new BadRequestException('Start a new conversation for the selected branch.');
       }
 
-      let branchLabel = lang === 'sw' ? 'Matawi Yote Yanayoruhusiwa' : 'All Authorized Branches';
-      if (effectiveBranch) {
-        const b = await client.query(`SELECT name FROM branches WHERE tenant_id = $1 AND id = $2`, [
-          ctx.tenantId,
-          effectiveBranch,
-        ]);
-        if (b.rows[0]) branchLabel = b.rows[0].name;
-      }
-
-      const runTool = async (name: string, sql: string, params: any[]) => {
-        const t0 = Date.now();
-        const r = await client.query(sql, params);
-        toolsExecuted.push({ name, rows: r.rows.length, ms: Date.now() - t0 });
-        return r.rows;
+      const tools: string[] = [];
+      const query = async (name: string, sql: string, args: any[] = scope): Promise<any[]> => {
+        const result = await client.query(sql, args);
+        tools.push(`${name} (${result.rows.length} rows)`);
+        return result.rows;
       };
-
+      const salesFilter = `s.tenant_id = $1 AND s.payment_status NOT IN ('reversed','refunded')
+        AND ($2::uuid IS NULL OR s.branch_id = $2::uuid)
+        AND ($3::uuid[] IS NULL OR s.branch_id = ANY($3::uuid[]))
+        AND (s.transaction_date AT TIME ZONE 'Africa/Nairobi')::date BETWEEN
+            (NOW() AT TIME ZONE 'Africa/Nairobi')::date - 44 AND (NOW() AT TIME ZONE 'Africa/Nairobi')::date`;
+      const [daily, totals, payments, expenses, products, inventory] = await Promise.all([
+        canSales ? query('daily_sales', `SELECT (s.transaction_date AT TIME ZONE 'Africa/Nairobi')::date::text AS date,
+          SUM(s.total_amount)::float AS revenue, SUM(s.total_amount-s.cost_of_goods_sold)::float AS gross_profit
+          FROM sales s WHERE ${salesFilter} GROUP BY 1 ORDER BY 1`) : Promise.resolve([]),
+        canSales ? query('sales_totals', `SELECT COUNT(*)::int AS orders, COALESCE(SUM(s.total_amount),0)::float AS revenue,
+          COALESCE(SUM(s.cost_of_goods_sold),0)::float AS cogs,
+          COUNT(*) FILTER (WHERE s.cost_basis='unknown')::int AS unknown_costs,
+          COUNT(*) FILTER (WHERE s.cost_basis='estimated')::int AS estimated_costs
+          FROM sales s WHERE ${salesFilter}`) : Promise.resolve([]),
+        canSales ? query('payment_totals', `SELECT sp.payment_method AS method, SUM(sp.amount)::float AS total
+          FROM sales_payments sp JOIN sales s ON s.tenant_id=sp.tenant_id AND s.id=sp.sale_id
+          WHERE ${salesFilter} GROUP BY 1 ORDER BY 2 DESC`) : Promise.resolve([]),
+        canFinance ? query('expenses', `SELECT COALESCE(ec.name,'General') AS category,
+          SUM(e.amount)::float AS total, COUNT(*)::int AS records FROM expenses e
+          LEFT JOIN expense_categories ec ON ec.tenant_id=e.tenant_id AND ec.id=e.category_id
+          WHERE e.tenant_id=$1 AND ($2::uuid IS NULL OR e.branch_id=$2::uuid)
+            AND ($3::uuid[] IS NULL OR e.branch_id=ANY($3::uuid[]))
+            AND e.expense_date BETWEEN (NOW() AT TIME ZONE 'Africa/Nairobi')::date - 44 AND (NOW() AT TIME ZONE 'Africa/Nairobi')::date
+          GROUP BY 1 ORDER BY 2 DESC`) : Promise.resolve([]),
+        canSales ? query('product_totals', `SELECT si.product_name_snapshot AS name, SUM(si.line_total)::float AS revenue,
+          SUM(si.line_total-si.quantity*si.unit_cost)::float AS gross_profit
+          FROM sales_items si JOIN sales s ON s.tenant_id=si.tenant_id AND s.id=si.sale_id
+          WHERE ${salesFilter} GROUP BY 1 ORDER BY 2 DESC LIMIT 25`) : Promise.resolve([]),
+        canInventory ? query('inventory_status', `SELECT COUNT(*) FILTER (WHERE stock_status='stockout')::int AS stockout_count,
+          COUNT(*) FILTER (WHERE stock_status='low_stock')::int AS low_stock_count
+          FROM vw_inventory_status WHERE tenant_id=$1 AND ($2::uuid IS NULL OR branch_id=$2::uuid)
+            AND ($3::uuid[] IS NULL OR branch_id=ANY($3::uuid[]))`) : Promise.resolve([]),
+      ]);
+      const total = totals[0] || { orders: 0, revenue: 0, cogs: 0, unknown_costs: 0, estimated_costs: 0 };
+      const expenseSum = expenses.reduce((sum, row) => sum + Number(row.total), 0);
+      const hasCosts = canFinance && Number(total.orders) > 0 && Number(total.unknown_costs) === 0;
+      const inv = inventory[0] || { stockout_count: 0, low_stock_count: 0 };
       let answerText = '';
       let chart: any = null;
       let kpis: { label: string; value: string }[] = [];
-      let recommendations: { title: string; type: 'observation' | 'estimate' | 'action'; detail: string }[] = [];
+      let calculations: any[] = [];
+      let recommendations: any[] = [];
       let followUps: string[] = [];
-      let periodLabel = 'Last 30 days';
-      let verifiedContext: Record<string, any> = { intent };
+      let periodLabel = tr('Last 45 days', 'Siku 45 zilizopita');
 
-      const canSeeFinance = ctx.permissions.includes('finance:read') || ctx.permissions.includes('sales:read');
-
-      if (intent === 'executive_briefing') {
-        periodLabel = 'Last 30 days vs Prior 30 days (Executive Health Diagnostic)';
-        const [currKpi] = await runTool(
-          'tool_30d_kpis',
-          `SELECT * FROM fn_calculate_business_kpis($1, $2::uuid, CURRENT_DATE - 30, CURRENT_DATE)`,
-          [ctx.tenantId, effectiveBranch],
-        );
-        const [prevKpi] = await runTool(
-          'tool_prior_30d_kpis',
-          `SELECT * FROM fn_calculate_business_kpis($1, $2::uuid, CURRENT_DATE - 60, CURRENT_DATE - 31)`,
-          [ctx.tenantId, effectiveBranch],
-        );
-        const [inv] = await runTool(
-          'tool_inventory_summary',
-          `SELECT COUNT(*)::int AS total_products,
-                  COUNT(*) FILTER (WHERE stock_status = 'stockout')::int AS stockout_count,
-                  COUNT(*) FILTER (WHERE stock_status = 'low_stock')::int AS low_stock_count
-           FROM vw_inventory_status WHERE tenant_id = $1 AND ($2::uuid IS NULL OR branch_id = $2::uuid)`,
-          [ctx.tenantId, effectiveBranch],
-        );
-        const [fin] = await runTool(
-          'tool_cash_obligations',
-          `SELECT
-             (SELECT COALESCE(SUM(opening_balance), 0)::float FROM cash_accounts WHERE tenant_id = $1) AS cash_balance,
-             (SELECT COALESCE(SUM(amount_due - amount_paid), 0)::float FROM payables WHERE tenant_id = $1 AND status <> 'paid') AS payables,
-             (SELECT COALESCE(SUM(amount_due - amount_paid), 0)::float FROM receivables WHERE tenant_id = $1 AND status <> 'paid') AS receivables`,
-          [ctx.tenantId],
-        );
-        const [cust] = await runTool(
-          'tool_customer_retention',
-          `SELECT
-             COUNT(*) FILTER (WHERE total_orders > 0 AND COALESCE(days_since_last_purchase, 0) < 30)::int AS active_customers,
-             COUNT(*) FILTER (WHERE total_orders > 0 AND COALESCE(days_since_last_purchase, 0) >= 30)::int AS churn_risk_customers
-           FROM vw_customer_purchase_summary WHERE tenant_id = $1`,
-          [ctx.tenantId],
-        );
-
-        const diagInput = {
-          current_revenue: Number(currKpi.total_revenue || 0),
-          previous_revenue: Number(prevKpi.total_revenue || 0),
-          current_orders: Number(currKpi.order_count || 0),
-          previous_orders: Number(prevKpi.order_count || 0),
-          gross_profit: Number(currKpi.gross_profit || 0),
-          expenses: Number(currKpi.total_expenses || 0),
-          cash_balance: Number(fin.cash_balance || 0),
-          payables: Number(fin.payables || 0),
-          receivables: Number(fin.receivables || 0),
-          stockout_count: Number(inv.stockout_count || 0),
-          low_stock_count: Number(inv.low_stock_count || 0),
-          total_products: Number(inv.total_products || 0),
-          active_customers: Number(cust.active_customers || 0),
-          churn_risk_customers: Number(cust.churn_risk_customers || 0),
-        };
-        const diag = await this.callIntelligence('/v1/advisor/diagnose', diagInput);
-        verifiedContext = { diagInput, diagnostics: diag };
-
-        const score = diag?.overall_health_score ?? 50;
-        const grade = diag?.grade ?? 'Ready for Data';
-        const netProfit = diagInput.gross_profit - diagInput.expenses;
-
-        kpis = [
-          { label: lang === 'sw' ? 'Alama ya Afya ya Biashara' : 'BizWave Health Score', value: `${score}/100 (${grade})` },
-          { label: lang === 'sw' ? 'Mapato (Siku 30)' : '30d Revenue', value: fmtKes(diagInput.current_revenue) },
-          { label: lang === 'sw' ? 'Faida Halisi' : '30d Net Profit', value: fmtKes(netProfit) },
-          { label: lang === 'sw' ? 'Tahadhari za Stoo' : 'Stockout / Low', value: `${diagInput.stockout_count} / ${diagInput.low_stock_count}` },
-        ];
-        if (diag?.pillars) {
-          chart = {
-            type: 'bar',
-            title: lang === 'sw' ? 'Alama za Nguzo za Biashara (0–100)' : 'Business Health Pillar Scores (0–100)',
-            data: [
-              { label: 'Growth', value: diag.pillars.growth },
-              { label: 'Margin', value: diag.pillars.margin },
-              { label: 'Inventory', value: diag.pillars.inventory },
-              { label: 'Cash Flow', value: diag.pillars.cashflow },
-              { label: 'Retention', value: diag.pillars.retention },
-            ],
-          };
-        }
-        const driverLines = (diag?.drivers || [])
-          .map((d: any) => `• **${d.headline}** — ${d.detail}`)
-          .join('\n');
-
-        if (diagInput.current_revenue === 0 && diagInput.expenses === 0) {
-          answerText =
-            lang === 'sw'
-              ? `**Muhtasari wa Afya ya Biashara:** Bado hujapakia rekodi za mauzo au matumizi kwa **${ctx.tenantName}**. Pakia faili yako ya CSV/Excel kwenye **BizWave Analytics → Imports** au rekodi mauzo na matumizi ili BizWave AI ikokotoe alama yako ya afya (0–100), utabiri wa mauzo, na hatua za ukuaji.`
-              : `**Executive Health Briefing:** No sales or expense records have been imported yet for **${ctx.tenantName}**. Upload your sales/M-Pesa/expense spreadsheet under **BizWave Analytics → Imports** (or record daily entries) to unlock live health scoring, anomaly detection, and cash-flow forecasts.`;
-        } else {
-          answerText =
-            lang === 'sw'
-              ? `**Alama ya Afya ya Biashara: ${score}/100 (${grade})**\nKatika siku 30 zilizopita, **${ctx.tenantName}** imerekodi mapato ya **${fmtKes(diagInput.current_revenue)}** (${diagInput.current_orders} oda), matumizi ya **${fmtKes(diagInput.expenses)}**, na faida halisi ya **${fmtKes(netProfit)}**.\n\n**Mambo Makuu Yaliyogunduliwa:**\n${driverLines || '• Viashiria vikuu vya biashara viko thabiti.'}\n\n**Hatua Inayopendekezwa:** Tumia kiigaji cha *What-If* hapa chini kupima athari za kuboresha bei, kupunguza gharama, au kujaza stoo.`
-              : `**BizWave Executive Health Score: ${score}/100 (${grade})**\nOver the trailing 30 days, **${ctx.tenantName}** recorded **${fmtKes(diagInput.current_revenue)}** in sales (**${diagInput.current_orders} orders**), **${fmtKes(diagInput.expenses)}** in operating expenses, and **${fmtKes(netProfit)}** in net profit.\n\n**Key Diagnostic Drivers:**\n${driverLines || '• Core operational metrics are tracking smoothly.'}\n\n**Next Actions:** Prioritize the highest-severity drivers above and test pricing or expense adjustments using the What-If Scenario Simulator.`;
-        }
-        recommendations = (diag?.drivers || []).slice(0, 3).map((d: any) => ({
-          title: d.headline,
-          type: d.severity === 'positive' ? 'observation' : 'action',
-          detail: d.detail,
-        }));
-        followUps =
-          lang === 'sw'
-            ? ['Nikiongeza bei kwa 8% na kupunguza gharama kwa 10% faida itakuwaje?', 'Linganisha rekodi za mauzo ya M-Pesa na pesa taslimu', 'Gharama kubwa zaidi mwezi huu ni zipi?']
-            : ['What if I raise prices 8% and cut expenses 10%?', 'Break down my recorded M-Pesa vs cash sales', 'Where are my biggest expense leaks this month?'];
-      } else if (intent === 'what_if_simulation') {
-        periodLabel = 'Trailing 30d Actuals -> What-If Scenario Projection';
-        const [kpiRow] = await runTool(
-          'tool_30d_baseline_for_simulation',
-          `SELECT * FROM fn_calculate_business_kpis($1, $2::uuid, CURRENT_DATE - 30, CURRENT_DATE)`,
-          [ctx.tenantId, effectiveBranch],
-        );
-        const rev = Number(kpiRow.total_revenue || 0);
-        const gp = Number(kpiRow.gross_profit || 0);
-        const cogs = Math.max(0, rev - gp);
-        const exp = Number(kpiRow.total_expenses || 0);
-        const params = parseWhatIfParams(question);
-        const sim = await this.callIntelligence('/v1/advisor/simulate', {
-          monthly_revenue: rev,
-          monthly_cogs: cogs,
-          monthly_expenses: exp,
-          ...params,
-        });
-        verifiedContext = { baseline: { rev, gp, cogs, exp }, params, simulation: sim };
-
-        if (rev === 0 || !sim) {
-          answerText =
-            lang === 'sw'
-              ? 'Pakia au rekodi angalau mauzo ya mwezi mmoja ili BizWave AI iweze kuiga (simulate) mabadiliko ya bei, oda, na gharama kwa usahihi.'
-              : 'Record or import at least one month of sales & expenses so BizWave AI can simulate price, volume, and cost scenarios on your real numbers.';
-        } else {
-          kpis = [
-            { label: lang === 'sw' ? 'Faida ya Sasa / Mwezi' : 'Current Net Profit / Mo', value: fmtKes(sim.baseline.monthly_net_profit) },
-            { label: lang === 'sw' ? 'Faida Inayokadiriwa / Mwezi' : 'Projected Net Profit / Mo', value: fmtKes(sim.projected.monthly_net_profit) },
-            { label: lang === 'sw' ? 'Ongezeko la Faida / Mwezi' : 'Monthly Profit Impact', value: `${sim.impact.net_profit_delta >= 0 ? '+' : ''}${fmtKes(sim.impact.net_profit_delta)}` },
-            { label: lang === 'sw' ? 'Athari kwa Mwaka' : 'Annualized Profit Impact', value: `${sim.impact.annualized_profit_delta >= 0 ? '+' : ''}${fmtKes(sim.impact.annualized_profit_delta)}` },
-          ];
-          chart = {
-            type: 'bar',
-            title: lang === 'sw' ? 'Ulinganisho: Sasa vs Makadirio (KES)' : 'Baseline vs Projected Monthly Performance (KES)',
-            data: [
-              { label: 'Current Rev', value: sim.baseline.monthly_revenue },
-              { label: 'Proj. Rev', value: sim.projected.monthly_revenue },
-              { label: 'Current Net', value: sim.baseline.monthly_net_profit },
-              { label: 'Proj. Net', value: sim.projected.monthly_net_profit },
-            ],
-          };
-          answerText =
-            lang === 'sw'
-              ? `**Uigaji wa Hali (What-If Simulation):** Kwa kurekebisha bei (**${params.price_change_pct >= 0 ? '+' : ''}${params.price_change_pct}%**), matumizi (**${params.expense_change_pct >= 0 ? '+' : ''}${params.expense_change_pct}%**), kiasi cha oda (**${params.volume_change_pct >= 0 ? '+' : ''}${params.volume_change_pct}%**), na kuzuia upotevu wa stoo (**+${params.stockout_recovery_pct}%**):\n\n• **Mapato kwa Mwezi:** ${fmtKes(sim.baseline.monthly_revenue)} → **${fmtKes(sim.projected.monthly_revenue)}**\n• **Faida Halisi kwa Mwezi:** ${fmtKes(sim.baseline.monthly_net_profit)} → **${fmtKes(sim.projected.monthly_net_profit)}** (${sim.impact.net_profit_delta >= 0 ? '+' : ''}${fmtKes(sim.impact.net_profit_delta)}/mwezi)\n• **Athari ya Mwaka Mzima:** **${sim.impact.annualized_profit_delta >= 0 ? '+' : ''}${fmtKes(sim.impact.annualized_profit_delta)}**\n\n**Hatua Inayopendekezwa:** Anza kwa kujaribu mabadiliko haya kwenye bidhaa zako kuu 5 na ufuatilie kasi ya mauzo kwa wiki 2.`
-              : `**What-If Scenario Simulation** (Price **${params.price_change_pct >= 0 ? '+' : ''}${params.price_change_pct}%**, Expenses **${params.expense_change_pct >= 0 ? '+' : ''}${params.expense_change_pct}%**, Volume **${params.volume_change_pct >= 0 ? '+' : ''}${params.volume_change_pct}%**, Stockout Recovery **+${params.stockout_recovery_pct}%**):\n\n• **Monthly Revenue:** ${fmtKes(sim.baseline.monthly_revenue)} → **${fmtKes(sim.projected.monthly_revenue)}**\n• **Monthly Net Profit:** ${fmtKes(sim.baseline.monthly_net_profit)} → **${fmtKes(sim.projected.monthly_net_profit)}** (**${sim.impact.net_profit_delta >= 0 ? '+' : ''}${fmtKes(sim.impact.net_profit_delta)} / month**, margin ${sim.impact.margin_delta_pp >= 0 ? '+' : ''}${sim.impact.margin_delta_pp} pp)\n• **Annualized Profit Impact:** **${sim.impact.annualized_profit_delta >= 0 ? '+' : ''}${fmtKes(sim.impact.annualized_profit_delta)}**\n\n*(Assumes conservative -0.35 price elasticity when raising prices.)*\n\n**Suggested Action:** Pilot the adjustment on your top-performing SKU category for 14 days and monitor order count in BizWave Analytics.`;
-          recommendations = [
-            {
-              title: 'Run controlled 14-day margin pilot',
-              type: 'estimate',
-              detail: `Projected upside of ${fmtKes(sim.impact.net_profit_delta)}/month (${fmtKes(sim.impact.annualized_profit_delta)}/year).`,
-            },
-          ];
-        }
-        followUps = ['Where are my biggest expense leaks this month?', 'Which products generate the highest profit?'];
-      } else if (intent === 'mpesa_payment_mix') {
-        periodLabel = 'Last 30 days Recorded Payment Method Mix';
-        const mix = await runTool(
-          'tool_recorded_payment_mix',
-          `SELECT sp.payment_method AS label,
-                  COUNT(*)::int AS tx_count,
-                  COALESCE(SUM(sp.amount), 0)::float AS value
-           FROM sales_payments sp
-           JOIN sales s ON s.tenant_id = sp.tenant_id AND s.id = sp.sale_id
-           WHERE sp.tenant_id = $1
-             AND s.payment_status NOT IN ('reversed','refunded')
-             AND ($2::uuid IS NULL OR s.branch_id = $2::uuid)
-             AND (s.transaction_date AT TIME ZONE 'Africa/Nairobi')::DATE >= CURRENT_DATE - 30
-           GROUP BY sp.payment_method
-           ORDER BY value DESC`,
-          [ctx.tenantId, effectiveBranch],
-        );
-        const totalAmt = mix.reduce((s, m) => s + m.value, 0);
-        const mpesaRow = mix.find((m) => m.label === 'mpesa');
-        const mpesaShare = totalAmt > 0 && mpesaRow ? (mpesaRow.value / totalAmt) * 100 : 0;
-        verifiedContext = { totalRecorded: totalAmt, paymentMix: mix };
-
-        kpis = mix.slice(0, 4).map((m) => ({
-          label: `${String(m.label).toUpperCase()} (Recorded)`,
-          value: `${fmtKes(m.value)} (${totalAmt > 0 ? ((m.value / totalAmt) * 100).toFixed(1) : '0'}%)`,
-        }));
-        chart = {
-          type: 'bar',
-          title: lang === 'sw' ? 'Rekodi za Mauzo kwa Njia ya Malipo (KES)' : 'Recorded Sales by Payment Method (KES)',
-          data: mix.map((m) => ({ label: String(m.label).toUpperCase(), value: m.value })),
-        };
-        answerText =
-          mix.length === 0
-            ? lang === 'sw'
-              ? 'Hakuna rekodi za njia za malipo zilizopakiwa kwa siku 30 zilizopita. Pakia rekodi za mauzo/M-Pesa kwenye BizWave Analytics ili kuzichambua.'
-              : 'No recorded sales payment breakdown found in the last 30 days. Record or import your sales & M-Pesa logs in BizWave Analytics to analyze channel mix.'
-            : lang === 'sw'
-              ? `**Uchunguzi wa Rekodi za Malipo (Siku 30):** Jumla ya rekodi za mauzo ni **${fmtKes(totalAmt)}**. **M-Pesa** inachangia **${mpesaShare.toFixed(1)}%** (${fmtKes(mpesaRow?.value || 0)}).\n\n**Mchanganuo:** ${mix.map((m) => `${String(m.label).toUpperCase()}: ${fmtKes(m.value)} (${m.tx_count} miamala)`).join(' · ')}.\n\n*Kumbuka: BizWave haichakati malipo ya wateja wako — inarekodi na kuchambua taarifa za M-Pesa, pesa taslimu na benki ili kukusaidia kufanya maamuzi bora.*`
-              : `**Recorded Payment Mix (Last 30 Days):** Total recorded inflows reached **${fmtKes(totalAmt)}**, with **M-Pesa accounting for ${mpesaShare.toFixed(1)}%** (${fmtKes(mpesaRow?.value || 0)}).\n\n**Breakdown:** ${mix.map((m) => `${String(m.label).toUpperCase()}: ${fmtKes(m.value)} (${m.tx_count} tx)`).join(' · ')}.\n\n*Note: BizWave does not process customer payments — we record, reconcile, and analyze your M-Pesa, cash, card, and bank entries to power accurate cash-flow decisions.*`;
-        followUps = ['How much cash might I need next month?', 'Where are my biggest expense leaks this month?'];
-      } else if (intent === 'expense_audit') {
-        if (!canSeeFinance) {
-          answerText = 'Your role does not include financial expense visibility.';
-        } else {
-          periodLabel = 'Last 30 days Operating Expense Audit';
-          const cats = await runTool(
-            'tool_expense_by_category',
-            `SELECT COALESCE(ec.name, e.vendor_name, 'Uncategorized') AS label,
-                    COUNT(*)::int AS items,
-                    COALESCE(SUM(e.amount), 0)::float AS value
-             FROM expenses e
-             LEFT JOIN expense_categories ec ON ec.tenant_id = e.tenant_id AND ec.id = e.category_id
-             WHERE e.tenant_id = $1
-               AND ($2::uuid IS NULL OR e.branch_id = $2::uuid)
-               AND e.expense_date >= CURRENT_DATE - 30
-             GROUP BY 1 ORDER BY value DESC LIMIT 7`,
-            [ctx.tenantId, effectiveBranch],
-          );
-          const [kpiRow] = await runTool(
-            'tool_expense_ratio_kpis',
-            `SELECT * FROM fn_calculate_business_kpis($1, $2::uuid, CURRENT_DATE - 30, CURRENT_DATE)`,
-            [ctx.tenantId, effectiveBranch],
-          );
-          const totalExp = cats.reduce((s, c) => s + c.value, 0);
-          const rev = Number(kpiRow.total_revenue || 0);
-          const ratio = rev > 0 ? (totalExp / rev) * 100 : 0;
-          verifiedContext = { totalExpenses: totalExp, revenue30d: rev, expenseRatioPct: ratio, categories: cats };
-
-          kpis = [
-            { label: lang === 'sw' ? 'Jumla ya Matumizi (30d)' : '30d Total Expenses', value: fmtKes(totalExp) },
-            { label: lang === 'sw' ? 'Asilimia ya Mapato' : 'Expense / Revenue Ratio', value: `${ratio.toFixed(1)}%` },
-            { label: lang === 'sw' ? 'Gharama Kubwa Zaidi' : 'Largest Cost Driver', value: cats[0] ? `${cats[0].label} (${fmtKes(cats[0].value)})` : 'None' },
-          ];
-          chart = cats.length > 0 ? { type: 'bar', title: lang === 'sw' ? 'Matumizi kwa Kategoria (KES)' : '30d Expenses by Category (KES)', data: cats } : null;
-          answerText =
-            cats.length === 0
-              ? lang === 'sw'
-                ? 'Hakuna rekodi za matumizi kwa siku 30 zilizopita. Rekodi au pakia gharama zako ili kufuatilia faida halisi.'
-                : 'No expenses recorded in the last 30 days. Record your rent, supplier, utility, and payroll costs in BizWave Analytics to track true net profit.'
-              : lang === 'sw'
-                ? `**Ukaguzi wa Gharama (Siku 30):** Jumla ya matumizi ni **${fmtKes(totalExp)}** (${ratio.toFixed(1)}% ya mapato ya ${fmtKes(rev)}).\n\n**Gharama 3 Kuu:** ${cats.slice(0, 3).map((c, i) => `${i + 1}. **${c.label}** — ${fmtKes(c.value)} (${totalExp > 0 ? ((c.value / totalExp) * 100).toFixed(0) : 0}%)`).join(' · ')}.\n\n**Hatua Inayopendekezwa:** Kupunguza gharama za **${cats[0].label}** kwa 10% kutahifadhi **${fmtKes(cats[0].value * 0.1)}** kila mwezi (${fmtKes(cats[0].value * 1.2)} kwa mwaka).`
-                : `**Operating Expense Audit (Last 30 Days):** Recorded expenses totaled **${fmtKes(totalExp)}** (**${ratio.toFixed(1)}%** of ${fmtKes(rev)} revenue).\n\n**Top Cost Drivers:** ${cats.slice(0, 3).map((c, i) => `${i + 1}. **${c.label}** — ${fmtKes(c.value)} (${totalExp > 0 ? ((c.value / totalExp) * 100).toFixed(0) : 0}%)`).join(' · ')}.\n\n**Suggested Action:** Trimming **${cats[0].label}** by 10% directly adds **${fmtKes(cats[0].value * 0.1)}/month** (**${fmtKes(cats[0].value * 1.2)}/year**) to net profit.`;
-          recommendations = cats[0]
-            ? [{ title: `Optimize ${cats[0].label}`, type: 'action', detail: `10% reduction saves ${fmtKes(cats[0].value * 0.1)} per month.` }]
-            : [];
-          followUps = ['What if I cut expenses 10% and raise prices 5%?', 'How much cash might I need next month?'];
-        }
-      } else if (intent === 'sales_drop') {
-        periodLabel = 'Last 7 days vs Prior 7 days';
-        const wk = await runTool(
-          'tool_weekly_sales_comparison',
-          `SELECT
-             COALESCE(SUM(total_amount) FILTER (WHERE (transaction_date AT TIME ZONE 'Africa/Nairobi')::DATE >= CURRENT_DATE - 6), 0)::float AS curr_rev,
-             COUNT(*) FILTER (WHERE (transaction_date AT TIME ZONE 'Africa/Nairobi')::DATE >= CURRENT_DATE - 6)::int AS curr_orders,
-             COALESCE(SUM(total_amount) FILTER (WHERE (transaction_date AT TIME ZONE 'Africa/Nairobi')::DATE BETWEEN CURRENT_DATE - 13 AND CURRENT_DATE - 7), 0)::float AS prev_rev,
-             COUNT(*) FILTER (WHERE (transaction_date AT TIME ZONE 'Africa/Nairobi')::DATE BETWEEN CURRENT_DATE - 13 AND CURRENT_DATE - 7)::int AS prev_orders
-           FROM sales
-           WHERE tenant_id = $1 AND payment_status NOT IN ('reversed','refunded')
-             AND ($2::uuid IS NULL OR branch_id = $2::uuid)
-             AND ($3::uuid[] IS NULL OR branch_id = ANY($3::uuid[]))`,
-          [ctx.tenantId, effectiveBranch, ctx.allowedBranchIds],
-        );
-        const daily = await runTool(
-          'tool_daily_sales_14d',
-          `SELECT (transaction_date AT TIME ZONE 'Africa/Nairobi')::DATE::text AS label,
-                  SUM(total_amount)::float AS value
-           FROM sales
-           WHERE tenant_id = $1 AND payment_status NOT IN ('reversed','refunded')
-             AND ($2::uuid IS NULL OR branch_id = $2::uuid)
-             AND (transaction_date AT TIME ZONE 'Africa/Nairobi')::DATE >= CURRENT_DATE - 13
-           GROUP BY 1 ORDER BY 1 ASC`,
-          [ctx.tenantId, effectiveBranch],
-        );
-        const stockouts = await runTool(
-          'tool_open_stock_alerts',
-          `SELECT product_name, branch_name, available_quantity, stock_status
-           FROM vw_inventory_status WHERE tenant_id = $1 AND stock_status IN ('stockout','low_stock') LIMIT 4`,
-          [ctx.tenantId],
-        );
-
-        const r = wk[0];
-        const deltaPct = r.prev_rev > 0 ? ((r.curr_rev - r.prev_rev) / r.prev_rev) * 100 : 0;
-        const orderDelta = r.curr_orders - r.prev_orders;
-        const currAov = r.curr_orders > 0 ? r.curr_rev / r.curr_orders : 0;
-        const prevAov = r.prev_orders > 0 ? r.prev_rev / r.prev_orders : 0;
-        const stockoutNames = stockouts.map((s) => `${s.product_name} (${s.branch_name})`).join(', ');
-        verifiedContext = { weekly: r, deltaPct, orderDelta, currAov, prevAov, stockouts };
-
-        kpis = [
-          { label: lang === 'sw' ? 'Mauzo Wiki Hii' : 'This Week Revenue', value: fmtKes(r.curr_rev) },
-          { label: lang === 'sw' ? 'Wiki Iliyopita' : 'Prior Week Revenue', value: fmtKes(r.prev_rev) },
-          { label: lang === 'sw' ? 'Mabadiliko' : 'Week-over-Week', value: `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%` },
-          { label: lang === 'sw' ? 'Wastani wa Oda (AOV)' : 'Avg Order Value', value: `${fmtKes(currAov)} (vs ${fmtKes(prevAov)})` },
-        ];
-        chart = { type: 'bar', title: lang === 'sw' ? 'Mauzo ya Kila Siku (Siku 14)' : 'Daily Revenue (Last 14 Days)', data: daily };
-
-        if (lang === 'sw') {
-          answerText = `**Uchunguzi (Observation):** Katika siku 7 zilizopita, mapato yalikuwa **${fmtKes(r.curr_rev)}** (${r.curr_orders} oda, wastani ${fmtKes(currAov)}) ikilinganishwa na **${fmtKes(r.prev_rev)}** (${r.prev_orders} oda) wiki iliyotangulia — badiliko la **${deltaPct.toFixed(1)}%**.\n\n**Sababu Zinazohusiana:** Idadi ya oda ilibadilika kwa **${orderDelta}**${stockoutNames ? `, na bidhaa zifuatazo zina uhaba au zimeisha stoo: **${stockoutNames}**` : ''}.\n\n**Hatua Inayopendekezwa:** Jaza upya bidhaa zilizoisha stoo mara moja na uwasiliane na wateja waliopunguza manunuzi kupitia BizWave Connect.`;
-          followUps = ['Ni bidhaa zipi zinakaribia kuisha stoo?', 'Ni tawi lipi linafanya vizuri zaidi?', 'Nifanye nini kuboresha mapato?'];
-        } else {
-          answerText = `**Observation:** Over the last 7 days, revenue totaled **${fmtKes(r.curr_rev)}** across **${r.curr_orders} orders** (AOV ${fmtKes(currAov)}), compared to **${fmtKes(r.prev_rev)}** (**${r.prev_orders} orders**, AOV ${fmtKes(prevAov)}) the previous week — a **${deltaPct.toFixed(1)}%** shift.\n\n**Root Cause:** Order volume moved by **${orderDelta} orders**${stockoutNames ? `, coinciding with stockouts/low stock on **${stockoutNames}**` : ''}.\n\n**Suggested Action:** Prioritize replenishment for out-of-stock SKUs and run a targeted weekend offer to high-frequency buyers via BizWave Connect.`;
-          followUps = ['Which products are likely to run out of stock?', 'Which branch is performing best?', 'What should I do to improve revenue?'];
-        }
-        recommendations = [
-          { title: 'Replenish depleted items', type: 'action', detail: stockoutNames ? `Restock ${stockoutNames}` : 'Verify top SKU shelf availability across branches.' },
-        ];
-      } else if (intent === 'top_profit_products') {
-        periodLabel = 'All recorded periods (Product Profitability)';
-        const prods = await runTool(
-          'tool_top_profitable_products',
-          `SELECT product_name AS label, gross_profit::float AS value, total_revenue::float AS revenue, units_sold::float AS units, margin_pct::float AS margin_pct
-           FROM vw_product_performance WHERE tenant_id = $1 ORDER BY gross_profit DESC LIMIT 6`,
-          [ctx.tenantId],
-        );
-        const top = prods[0];
-        verifiedContext = { topProducts: prods };
-        kpis = prods.slice(0, 3).map((p) => ({
-          label: p.label,
-          value: `${fmtKes(p.value)} (${p.margin_pct}% margin)`,
-        }));
-        chart = { type: 'bar', title: lang === 'sw' ? 'Faida Ghafi kwa Bidhaa (KES)' : 'Gross Profit by Product (KES)', data: prods };
-        answerText = !top
-          ? lang === 'sw'
-            ? 'Hakuna rekodi za mauzo ya bidhaa bado. Pakia faili la mauzo kwanza.'
-            : 'No product sales records found yet. Import sales data to analyze product profitability.'
-          : lang === 'sw'
-            ? `**Uchunguzi (Observation):** Bidhaa inayoongoza kwa faida ghafi ni **${top.label}** ikiwa na faida ya **${fmtKes(top.value)}** (kiwango cha faida **${top.margin_pct}%** kutoka mauzo ya **${fmtKes(top.revenue)}**).\n\n**Bidhaa 3 Bora:** ${prods.slice(0, 3).map((p, i) => `${i + 1}. ${p.label} (${fmtKes(p.value)}, ${p.margin_pct}%)`).join(' · ')}.\n\n**Hatua Inayopendekezwa:** Linda upatikanaji wa stoo wa bidhaa hizi zenye faida kubwa na uziweke mbele kwenye promosheni.`
-            : `**Observation:** Your highest-profit product is **${top.label}**, generating **${fmtKes(top.value)}** in gross profit (**${top.margin_pct}%** gross margin on **${fmtKes(top.revenue)}** revenue).\n\n**Top 3 Profit Drivers:** ${prods.slice(0, 3).map((p, i) => `${i + 1}. ${p.label} — ${fmtKes(p.value)} (${p.margin_pct}%)`).join(' · ')}.\n\n**Suggested Action:** Protect safety stock on top-margin SKUs and bundle slower-moving staples alongside them to lift average basket value.`;
-        followUps =
-          lang === 'sw'
-            ? ['Ni bidhaa zipi zinakaribia kuisha stoo?', 'Ni tawi lipi linafanya vizuri zaidi?']
-            : ['Which products are likely to run out of stock?', 'Which branch is performing best?'];
-      } else if (intent === 'stockout_risk') {
-        periodLabel = 'Real-Time Inventory Snapshot';
-        const items = await runTool(
-          'tool_inventory_risk',
-          `SELECT product_name, branch_name, available_quantity::float AS available, reorder_level::float AS reorder_level, stock_status
-           FROM vw_inventory_status
-           WHERE tenant_id = $1 AND ($2::uuid IS NULL OR branch_id = $2::uuid)
-           ORDER BY CASE stock_status WHEN 'stockout' THEN 0 WHEN 'low_stock' THEN 1 ELSE 2 END, available_quantity ASC LIMIT 8`,
-          [ctx.tenantId, effectiveBranch],
-        );
-        const atRisk = items.filter((i) => i.stock_status !== 'healthy');
-        verifiedContext = { inventoryAtRisk: atRisk };
-        kpis = [
-          { label: lang === 'sw' ? 'Zimeisha Stoo' : 'Out of Stock', value: String(atRisk.filter((i) => i.stock_status === 'stockout').length) },
-          { label: lang === 'sw' ? 'Stoo ya Chini' : 'Low Stock Warning', value: String(atRisk.filter((i) => i.stock_status === 'low_stock').length) },
-        ];
-        chart = {
-          type: 'bar',
-          title: lang === 'sw' ? 'Idadi Iliyopo Stoo' : 'Available Units on Hand',
-          data: items.map((i) => ({ label: `${i.product_name.slice(0, 18)} (${i.branch_name.slice(0, 4)})`, value: i.available })),
-        };
-        const listStr = atRisk
-          .map((i) => `• **${i.product_name}** (${i.branch_name}): ${i.available} left vs reorder level ${i.reorder_level} [${i.stock_status.toUpperCase()}]`)
-          .join('\n');
-        answerText =
-          atRisk.length === 0
-            ? lang === 'sw'
-              ? '**Uchunguzi:** Bidhaa zote ziko juu ya kiwango cha kuagiza upya kwa sasa.'
-              : '**Observation:** All tracked products are currently above their configured reorder thresholds.'
-            : lang === 'sw'
-              ? `**Uchunguzi (Observation):** Kuna bidhaa **${atRisk.length}** zenye hatari ya kuisha stoo:\n${listStr}\n\n**Hatua Inayopendekezwa:** Tuma agizo la ununuzi kwa wasambazaji wako leo ili kuepuka upotevu wa mauzo.`
-              : `**Observation:** **${atRisk.length} SKU-branch lines** are either stocked out or below reorder threshold:\n${listStr}\n\n**Suggested Action:** Raise purchase orders immediately for critical stockouts and rebalance surplus inventory across branches.`;
-        followUps =
-          lang === 'sw'
-            ? ['Kwa nini mauzo yangu yalipungua wiki hii?', 'Nitahitaji pesa kiasi gani mwezi ujao?']
-            : ['Why did my sales decrease this week?', 'How much cash might I need next month?'];
-      } else if (intent === 'cash_needed_next_month') {
-        if (!canSeeFinance) {
-          answerText = 'Your role does not include financial data access required to estimate monthly cash obligations.';
-        } else {
-          periodLabel = 'Trailing 30d Operating Expenses + Open Confirmed Payables';
-          const [expRow] = await runTool(
-            'tool_trailing_30d_expenses',
-            `SELECT COALESCE(SUM(amount), 0)::float AS total_exp FROM expenses WHERE tenant_id = $1 AND expense_date >= CURRENT_DATE - 30`,
-            [ctx.tenantId],
-          );
-          const payables = await runTool(
-            'tool_confirmed_payables',
-            `SELECT description AS label, (amount_due - amount_paid)::float AS value, due_date::text AS due_date
-             FROM payables WHERE tenant_id = $1 AND status <> 'paid' AND is_confirmed_obligation = TRUE ORDER BY due_date ASC`,
-            [ctx.tenantId],
-          );
-          const [cashRow] = await runTool(
-            'tool_cash_accounts_opening',
-            `SELECT COALESCE(SUM(opening_balance), 0)::float AS bal FROM cash_accounts WHERE tenant_id = $1`,
-            [ctx.tenantId],
-          );
-          const confirmedPay = payables.reduce((a, b) => a + b.value, 0);
-          const estMonthlyOpex = expRow.total_exp;
-          const totalProjectedOutflow = confirmedPay + estMonthlyOpex * 0.65;
-          const recommendedBuffer = totalProjectedOutflow * 1.15;
-          verifiedContext = { confirmedPay, estMonthlyOpex, cashOpeningBalance: cashRow.bal, recommendedBuffer, payables };
-
-          kpis = [
-            { label: lang === 'sw' ? 'Madeni Yaliyothibitishwa' : 'Confirmed Payables', value: fmtKes(confirmedPay) },
-            { label: lang === 'sw' ? 'Matumizi (Siku 30)' : 'Trailing 30d Expenses', value: fmtKes(estMonthlyOpex) },
-            { label: lang === 'sw' ? 'Akiba ya Fedha Inayopendekezwa' : 'Recommended Cash Reserve', value: fmtKes(recommendedBuffer) },
-          ];
-          chart = payables.length > 0 ? { type: 'bar', title: 'Confirmed Upcoming Payables (KES)', data: payables } : null;
-          answerText =
-            lang === 'sw'
-              ? `**Uchunguzi (Observation):** Una madeni yaliyothibitishwa ya **${fmtKes(confirmedPay)}** na matumizi ya siku 30 zilizopita ya **${fmtKes(estMonthlyOpex)}** (salio la akaunti: **${fmtKes(cashRow.bal)}**).\n\n**Makadirio (Estimate):** Kwa kujumuisha gharama zilizothibitishwa + kinga ya 15%, panga takriban **${fmtKes(recommendedBuffer)}** kwa mwezi ujao.\n\n**Hatua Inayopendekezwa:** Fuatilia madeni ya wateja (receivables) na ulinganishe rekodi za M-Pesa mara kwa mara.`
-              : `**Observation:** You have **${fmtKes(confirmedPay)}** in confirmed unpaid payables and **${fmtKes(estMonthlyOpex)}** in recorded operating expenses over the past 30 days (recorded cash balance: **${fmtKes(cashRow.bal)}**).\n\n**Estimate:** Combining confirmed bills with recurring outlays plus a 15% safety buffer suggests keeping roughly **${fmtKes(recommendedBuffer)}** available for the next 30 days.\n\n**Suggested Action:** Review your 30-day Cash-Flow Forecast in BizWave Predict and accelerate collection of open receivables.`;
-          followUps =
-            lang === 'sw'
-              ? ['Gharama kubwa zaidi mwezi huu ni zipi?', 'Nifanye nini kuboresha mapato?']
-              : ['Where are my biggest expense leaks this month?', 'What should I do to improve revenue?'];
-        }
-      } else if (intent === 'churn_customers') {
-        periodLabel = 'Inactive Customer Cohort (>30 days since last order)';
-        const dormant = await runTool(
-          'tool_inactive_customers',
-          `SELECT full_name, phone_number, total_orders::int AS orders, lifetime_value::float AS ltv, days_since_last_purchase::int AS inactive_days, marketing_opt_in
-           FROM vw_customer_purchase_summary
-           WHERE tenant_id = $1 AND total_orders > 0 AND COALESCE(days_since_last_purchase, 0) >= 30
-           ORDER BY lifetime_value DESC LIMIT 8`,
-          [ctx.tenantId],
-        );
-        verifiedContext = { dormantCustomers: dormant };
-        kpis = [
-          { label: lang === 'sw' ? 'Wateja Waliosimama (30d+)' : 'Inactive Customers (30d+)', value: String(dormant.length) },
-          { label: lang === 'sw' ? 'Thamani ya Kihistoria Hatarini' : 'Historical LTV at Risk', value: fmtKes(dormant.reduce((s, d) => s + d.ltv, 0)) },
-        ];
-        chart = {
-          type: 'bar',
-          title: lang === 'sw' ? 'Siku Tangu Ununuzi wa Mwisho' : 'Days Since Last Purchase',
-          data: dormant.map((d) => ({ label: d.full_name, value: d.inactive_days })),
-        };
-        const names = dormant
-          .map((d) => `• **${d.full_name}** — ${d.inactive_days} days inactive (LTV: ${fmtKes(d.ltv)}, consent: ${d.marketing_opt_in ? 'opted-in' : 'no marketing consent'})`)
-          .join('\n');
-        answerText =
-          dormant.length === 0
-            ? lang === 'sw'
-              ? '**Uchunguzi:** Hakuna wateja wa kawaida walioacha kununua kwa zaidi ya siku 30.'
-              : '**Observation:** None of your repeat customers have been inactive for more than 30 days.'
-            : lang === 'sw'
-              ? `**Uchunguzi (Observation):** Wateja **${dormant.length}** hawajanunua kwa zaidi ya siku 30:\n${names}\n\n**Hatua Inayopendekezwa:** Tuma ujumbe wa kuwakaribisha tena kupitia BizWave Connect kwa wale tu waliotoa idhini ya ujumbe.`
-              : `**Observation:** **${dormant.length} repeat customers** have not purchased in 30+ days:\n${names}\n\n**Suggested Action:** Re-engage opted-in buyers via a targeted BizWave Connect WhatsApp/SMS check-in (strictly respecting Kenya DPA 2019 consent flags).`;
-        followUps = ['What should I do to improve revenue?', 'Which branch is performing best?'];
-      } else if (intent === 'best_branch') {
-        periodLabel = 'All Recorded Periods — Branch Comparison';
-        const branches = await runTool(
-          'tool_branch_comparison',
-          `SELECT branch_name AS label, total_revenue::float AS value, gross_profit::float AS gross_profit, total_expenses::float AS expenses, net_contribution::float AS net_contribution, order_count::int AS orders
-           FROM vw_branch_performance WHERE tenant_id = $1 ORDER BY total_revenue DESC`,
-          [ctx.tenantId],
-        );
-        const best = branches[0];
-        verifiedContext = { branches };
-        kpis = branches.map((b) => ({
-          label: b.label,
-          value: `${fmtKes(b.value)} (${b.orders} orders)`,
-        }));
-        chart = { type: 'bar', title: lang === 'sw' ? 'Mapato kwa Kila Tawi (KES)' : 'Revenue by Branch (KES)', data: branches };
-        answerText = !best
-          ? 'No branch sales data found yet.'
-          : lang === 'sw'
-            ? `**Uchunguzi (Observation):** Tawi linaloongoza ni **${best.label}** likiwa na mapato ya **${fmtKes(best.value)}**, faida ghafi ya **${fmtKes(best.gross_profit)}**, na mchango halisi wa **${fmtKes(best.net_contribution)}** (${best.orders} oda).\n\n**Hatua Inayopendekezwa:** Linganisha upatikanaji wa stoo na bidhaa zinazouzika zaidi kati ya matawi ili kuinua matawi yenye mauzo ya chini.`
-            : `**Observation:** **${best.label}** is your top-performing branch with **${fmtKes(best.value)}** in revenue, **${fmtKes(best.gross_profit)}** in gross profit, and **${fmtKes(best.net_contribution)}** net contribution across **${best.orders} orders**.\n\n**Suggested Action:** Replicate ${best.label}'s top-margin stock mix and resolve stockouts at lagging branches.`;
-        followUps = ['Why did my sales decrease this week?', 'Which products generate the highest profit?'];
-      } else {
-        periodLabel = 'Last 30 days Holistic Business Diagnostic';
-        const [kpiRow] = await runTool(
-          'tool_30d_business_kpis',
-          `SELECT * FROM fn_calculate_business_kpis($1, $2::uuid, CURRENT_DATE - 30, CURRENT_DATE)`,
-          [ctx.tenantId, effectiveBranch],
-        );
-        const topProds = await runTool(
-          'tool_top_3_products',
-          `SELECT product_name, gross_profit::float AS gp, margin_pct::float AS margin FROM vw_product_performance WHERE tenant_id = $1 ORDER BY gross_profit DESC LIMIT 3`,
-          [ctx.tenantId],
-        );
-        const stockRisk = await runTool(
-          'tool_stock_risk_count',
-          `SELECT COUNT(*) FILTER (WHERE stock_status IN ('stockout','low_stock'))::int AS risk_count FROM vw_inventory_status WHERE tenant_id = $1`,
-          [ctx.tenantId],
-        );
-        verifiedContext = { kpis30d: kpiRow, topProds, stockRisk: stockRisk[0]?.risk_count || 0 };
-        kpis = [
-          { label: lang === 'sw' ? 'Mapato (Siku 30)' : '30d Revenue', value: fmtKes(Number(kpiRow.total_revenue)) },
-          { label: lang === 'sw' ? 'Faida Ghafi' : 'Gross Profit', value: fmtKes(Number(kpiRow.gross_profit)) },
-          { label: lang === 'sw' ? 'Wastani wa Oda' : 'Avg Order Value', value: fmtKes(Number(kpiRow.avg_order_value)) },
-          { label: lang === 'sw' ? 'Tahadhari za Stoo' : 'Stock Risk Lines', value: String(stockRisk[0]?.risk_count || 0) },
-        ];
-        answerText =
-          lang === 'sw'
-            ? `**Muhtasari wa Biashara (Siku 30):** Mapato ni **${fmtKes(Number(kpiRow.total_revenue))}**, faida ghafi **${fmtKes(Number(kpiRow.gross_profit))}**, na jumla ya oda **${kpiRow.order_count}**.\n\n**Hatua 3 za Kuongeza Mapato:**\n1. **Zuia upotevu wa stoo:** Kuna bidhaa **${stockRisk[0]?.risk_count || 0}** zilizo kwenye hatari ya kuisha stoo.\n2. **Kuzingatia bidhaa zenye faida kubwa:** ${topProds.length ? topProds.map((p) => p.product_name).join(', ') : 'Pakia mauzo ya bidhaa ili kutambua viongozi wa faida'}.\n3. **Rejesha wateja waliopoa:** Tumia BizWave Connect kuwafikia wateja waliotoa idhini.`
-            : `**Observation (Last 30 Days):** Revenue stands at **${fmtKes(Number(kpiRow.total_revenue))}** across **${kpiRow.order_count} orders** (AOV **${fmtKes(Number(kpiRow.avg_order_value))}**), generating **${fmtKes(Number(kpiRow.gross_profit))}** in gross profit.\n\n**Prioritized Growth Plan:**\n1. **Eliminate stockout leakage:** Resolve **${stockRisk[0]?.risk_count || 0}** stockout/low-stock SKU lines immediately.\n2. **Spotlight high-margin winners:** ${topProds.length ? `Feature **${topProds.map((p) => `${p.product_name} (${p.margin}%)`).join(', ')}** in bundles and promotions.` : 'Import itemized product sales to pinpoint your top-margin winners.'}\n3. **Win back dormant buyers:** Launch a consent-verified WhatsApp/SMS campaign via BizWave Connect.`;
-        followUps =
-          lang === 'sw'
-            ? ['Nipe ripoti ya afya ya biashara yangu leo', 'Nikiongeza bei kwa 8% na kupunguza gharama kwa 10% faida itakuwaje?', 'Linganisha rekodi za mauzo ya M-Pesa na pesa taslimu']
-            : ['Give me my executive business health briefing', 'What if I raise prices 8% and cut expenses 10%?', 'Break down my recorded M-Pesa vs cash sales'];
-      }
-
-      // Optional live LLM enhancement strictly grounded in verified SQL + Python Intelligence numbers
-      const polished = await this.enhanceWithGroundedLlm({
-        question,
-        lang,
-        tenantName: ctx.tenantName,
-        industryCode: ctx.industryCode,
-        verifiedContext,
-        deterministicDraft: answerText,
+      const scientist = async () => this.callIntelligence('/v1/scientist/analyze', {
+        daily_sales: daily, products, payment_mix: payments, expense_mix: expenses,
+        total_revenue: Number(total.revenue), total_cogs: Number(total.cogs),
+        total_expenses: expenseSum, total_orders: Number(total.orders),
+        cost_data_available: hasCosts, expense_data_available: canFinance && expenses.length > 0,
+        liquidity_data_available: false,
+        stockout_count: Number(inv.stockout_count), low_stock_count: Number(inv.low_stock_count),
+        period_days: 45, horizon_days: 14,
       });
-      answerText = polished.text;
-
-      const provenance = {
-        organization: ctx.tenantName,
-        branchScope: branchLabel,
-        period: periodLabel,
-        toolsExecuted: toolsExecuted.map((t) => `${t.name} (${t.rows} rows, ${t.ms}ms)`),
-        groundedInDatabase: true,
-        synthesisMode: polished.llmUsed ? `grounded_llm (${polished.model})` : 'deterministic_sql_intelligence',
-        generatedAt: new Date().toISOString(),
-      };
-
-      const msgIns = await client.query(
-        `INSERT INTO ai_messages (tenant_id, conversation_id, role, content, language, intent, provenance, supporting_data, follow_up_questions)
-         VALUES ($1,$2,'assistant',$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb) RETURNING *`,
-        [
-          ctx.tenantId,
-          conversationId,
-          answerText,
-          lang,
-          intent,
-          JSON.stringify(provenance),
-          JSON.stringify({ kpis, chart, recommendations }),
-          JSON.stringify(followUps),
-        ],
-      );
-      const assistantMessage = msgIns.rows[0];
-
-      for (const t of toolsExecuted) {
-        await client.query(
-          `INSERT INTO ai_tool_executions (tenant_id, message_id, tool_name, row_count, execution_ms)
-           VALUES ($1,$2,$3,$4,$5)`,
-          [ctx.tenantId, assistantMessage.id, t.name, t.rows, t.ms],
-        );
+      const salesRequired = ['pro_scientist_audit', 'forecast_graph', 'pie_chart_breakdown', 'mpesa_payment_mix', 'sales_drop', 'top_profit_products', 'best_branch', 'what_if_simulation'];
+      if (salesRequired.includes(intent) && !canSales) {
+        answerText = tr('Your role does not include access to sales records. Ask your business owner if you need access.', 'Jukumu lako halina ruhusa ya kuona mauzo. Muulize mmiliki wa biashara kama unahitaji ruhusa.');
+      } else if (['forecast_graph', 'pro_scientist_audit'].includes(intent)) {
+        const sci = await scientist();
+        if (!sci) {
+          answerText = tr('The analysis service is temporarily unavailable. Please try again.', 'Huduma ya uchambuzi haipatikani kwa sasa. Jaribu tena.');
+        } else if (intent === 'forecast_graph') {
+          const series = sci.forecast?.series || [];
+          const future = series.filter((point: any) => point.is_forecast);
+          if (!future.length) {
+            answerText = tr('Record at least three days of sales before creating a forecast.', 'Rekodi mauzo ya angalau siku tatu kabla ya kutengeneza utabiri.');
+          } else {
+            chart = { type: 'forecast', title: tr('Sales estimate', 'Makadirio ya mauzo'), data: series };
+            kpis = [{ label: tr('14-day estimate', 'Makadirio ya siku 14'), value: fmtKes(Number(sci.forecast.projected_14d_revenue)) }];
+            answerText = tr(`Estimated sales for ${future[0].date} to ${future[future.length - 1].date}: ${fmtKes(Number(sci.forecast.projected_14d_revenue))}. This is not guaranteed. Days without records are treated as zero by this model; the shaded range is a rough estimate, not a validated probability.`,
+              `Makadirio ya mauzo kuanzia ${future[0].date} hadi ${future[future.length - 1].date}: ${fmtKes(Number(sci.forecast.projected_14d_revenue))}. Si uhakika. Siku zisizo na rekodi huhesabiwa kama sifuri; wigo ni makadirio tu.`);
+          }
+        } else {
+          calculations = sci.calculations || [];
+          recommendations = (sci.recommendations || []).map((r: any) => ({ title: r.title, type: 'action', detail: lang === 'sw' ? r.sw : r.en }));
+          kpis = [{ label: tr('Recorded sales days', 'Siku zenye mauzo'), value: String(sci.recorded_days || 0) }];
+          answerText = tr(`Analysis is based on ${sci.recorded_days || 0} days with sales records. Figures that lack cost or expense information are left out.`,
+            `Uchambuzi unatokana na siku ${sci.recorded_days || 0} zenye rekodi za mauzo. Vipimo visivyo na taarifa za gharama au matumizi havijaonyeshwa.`);
+          if (Number(total.estimated_costs) > 0 && hasCosts) answerText += tr(' Some costs are estimates.', ' Baadhi ya gharama ni makadirio.');
+          if (sci.charts?.weekday_bar?.some((row: any) => row.value > 0)) chart = { type: 'bar', title: tr('Sales by weekday', 'Mauzo kwa siku'), data: sci.charts.weekday_bar };
+        }
+      } else if (['pie_chart_breakdown', 'mpesa_payment_mix'].includes(intent)) {
+        const rows = payments.map((p) => ({ label: String(p.method).replace(/_/g, ' '), value: Number(p.total) }));
+        if (rows.length) {
+          chart = { type: 'pie', title: tr('Recorded payments', 'Malipo yaliyorekodiwa'), data: rows };
+          answerText = tr('These are payment methods recorded against your sales, not a complete bank statement.', 'Hizi ni njia za malipo zilizorekodiwa kwenye mauzo, si taarifa kamili ya benki.');
+        } else answerText = tr('No payment methods have been recorded for this period.', 'Hakuna njia za malipo zilizorekodiwa katika kipindi hiki.');
+      } else if (intent === 'expense_audit') {
+        if (!canFinance) answerText = tr('Your role does not include expense access.', 'Jukumu lako halina ruhusa ya kuona matumizi.');
+        else if (!expenses.length) answerText = tr('There are no recorded expenses in this period.', 'Hakuna matumizi yaliyorekodiwa katika kipindi hiki.');
+        else {
+          chart = { type: 'pie', title: tr('Recorded expenses', 'Matumizi yaliyorekodiwa'), data: expenses.map((e) => ({ label: e.category, value: Number(e.total) })) };
+          kpis = [{ label: tr('Recorded expenses', 'Matumizi yaliyorekodiwa'), value: fmtKes(expenseSum) }];
+          answerText = tr('This breakdown uses the expenses recorded in the selected branch scope.', 'Mgawanyo huu unatumia matumizi yaliyorekodiwa kwa matawi yaliyochaguliwa.');
+        }
+      } else if (intent === 'website_catalog_insights') {
+        const sources = await query('website_sources', `SELECT name, last_synced_at FROM data_sources WHERE tenant_id=$1
+          AND source_type='json_api' AND config ? 'url' AND ($2::uuid IS NULL OR branch_id=$2::uuid)
+          AND ($3::uuid[] IS NULL OR branch_id=ANY($3::uuid[])) ORDER BY last_synced_at DESC LIMIT 5`);
+        answerText = sources.length ? tr(`Connected websites: ${sources.map((x) => x.name).join(', ')}. Open Website sync to review the latest results.`, `Tovuti zilizounganishwa: ${sources.map((x) => x.name).join(', ')}. Fungua sehemu ya tovuti kuona matokeo.`)
+          : tr('No website is connected in this branch scope. Open Website sync to analyze one.', 'Hakuna tovuti iliyounganishwa katika matawi haya. Fungua sehemu ya tovuti kuchambua moja.');
+      } else if (intent === 'what_if_simulation') {
+        if (!canFinance) answerText = tr('Your role does not include access to financial scenarios.', 'Jukumu lako halina ruhusa ya kuona makadirio ya fedha.');
+        else if (!hasCosts || !expenses.length) answerText = tr('Add sales costs and expense records before running a profit scenario.', 'Weka gharama za mauzo na rekodi za matumizi kabla ya kukadiria faida.');
+        else if (!/\d+(?:\.\d+)?\s*%/.test(question)) answerText = tr('Tell me the percentage changes you want to test, for example: increase price by 8%.', 'Niambie asilimia unayotaka kujaribu, kwa mfano: ongeza bei kwa 8%.');
+        else {
+          const params = parseWhatIfParams(question);
+          const sim = await this.callIntelligence('/v1/advisor/simulate', { monthly_revenue: Number(total.revenue) * 30 / 45,
+            monthly_cogs: Number(total.cogs) * 30 / 45, monthly_expenses: expenseSum * 30 / 45, ...params });
+          answerText = sim ? tr(`Illustrative scenario: monthly profit changes by ${fmtKes(Number(sim.impact.net_profit_delta))}. It assumes a price elasticity of ${sim.assumptions.price_elasticity}; it is not a prediction.`,
+            `Mfano wa makadirio: faida ya mwezi inabadilika kwa ${fmtKes(Number(sim.impact.net_profit_delta))}. Mfano unatumia dhana ya mwitikio wa bei ${sim.assumptions.price_elasticity}; si utabiri.`)
+            : tr('The scenario service is temporarily unavailable.', 'Huduma ya makadirio haipatikani kwa sasa.');
+        }
+      } else if (intent === 'stockout_risk') {
+        if (!canInventory) answerText = tr('Your role does not include inventory access.', 'Jukumu lako halina ruhusa ya kuona stoo.');
+        else answerText = tr(`Recorded inventory shows ${inv.stockout_count} out-of-stock and ${inv.low_stock_count} low-stock lines.`, `Stoo iliyorekodiwa ina bidhaa ${inv.stockout_count} zilizoisha na ${inv.low_stock_count} zinazokaribia kuisha.`);
+      } else if (intent === 'cash_needed_next_month') {
+        answerText = tr('A reliable cash forecast needs current account balances and confirmed obligations. Opening balances alone are not enough.', 'Utabiri wa fedha unahitaji salio la sasa na madeni yaliyothibitishwa. Salio la mwanzo pekee halitoshi.');
+      } else if (intent === 'churn_customers') {
+        if (!canCustomers) answerText = tr('Your role does not include customer access.', 'Jukumu lako halina ruhusa ya kuona wateja.');
+        else {
+          const rows = await query('inactive_customers', `SELECT c.full_name, MAX(s.transaction_date) AS last_purchase
+            FROM customers c JOIN sales s ON s.tenant_id=c.tenant_id AND s.customer_id=c.id
+            WHERE c.tenant_id=$1 AND s.payment_status NOT IN ('reversed','refunded')
+            AND ($2::uuid IS NULL OR s.branch_id=$2::uuid) AND ($3::uuid[] IS NULL OR s.branch_id=ANY($3::uuid[]))
+            GROUP BY c.id,c.full_name HAVING MAX(s.transaction_date) < NOW() - INTERVAL '30 days'
+            ORDER BY MAX(s.transaction_date) DESC LIMIT 8`);
+          answerText = rows.length ? tr(`Customers without a recorded purchase in these branches for 30 days: ${rows.map((r) => r.full_name).join(', ')}. This is not a churn prediction.`,
+            `Wateja wasio na ununuzi uliorekodiwa katika matawi haya kwa siku 30: ${rows.map((r) => r.full_name).join(', ')}. Huu si utabiri wa kuondoka.`)
+            : tr('No inactive customers were found in the selected branch records.', 'Hakuna wateja waliokaa bila kununua waliopatikana katika rekodi za matawi haya.');
+        }
+      } else if (intent === 'best_branch') {
+        const rows = await query('branch_sales', `SELECT b.name AS label, COALESCE(SUM(s.total_amount),0)::float AS value
+          FROM branches b LEFT JOIN sales s ON s.tenant_id=b.tenant_id AND s.branch_id=b.id AND s.payment_status NOT IN ('reversed','refunded')
+          WHERE b.tenant_id=$1 AND ($2::uuid IS NULL OR b.id=$2::uuid) AND ($3::uuid[] IS NULL OR b.id=ANY($3::uuid[]))
+          GROUP BY b.id,b.name ORDER BY value DESC`);
+        chart = { type: 'bar', title: tr('Recorded sales by branch', 'Mauzo yaliyorekodiwa kwa tawi'), data: rows };
+        periodLabel = tr('All recorded sales', 'Mauzo yote yaliyorekodiwa');
+        answerText = rows.length ? tr(`Among the branches you can access, ${rows[0].label} has recorded the most sales: ${fmtKes(Number(rows[0].value))}.`, `Kati ya matawi unayoweza kuona, ${rows[0].label} lina mauzo mengi yaliyorekodiwa: ${fmtKes(Number(rows[0].value))}.`) : tr('No branches are available.', 'Hakuna matawi yanayopatikana.');
+      } else if (intent === 'top_profit_products') {
+        if (!canFinance) answerText = tr('Your role does not include access to profit figures.', 'Jukumu lako halina ruhusa ya kuona faida.');
+        else if (!hasCosts) answerText = tr('Profit cannot be calculated because one or more sales are missing costs.', 'Faida haiwezi kuhesabiwa kwa sababu baadhi ya mauzo hayana gharama.');
+        else if (!products.length) answerText = tr('No item-level sales were recorded for this period.', 'Hakuna mauzo ya bidhaa binafsi yaliyorekodiwa katika kipindi hiki.');
+        else {
+          const sorted = [...products].sort((a, b) => Number(b.gross_profit) - Number(a.gross_profit));
+          chart = { type: 'bar', title: tr('Recorded gross profit by item', 'Faida ghafi kwa bidhaa'), data: sorted.slice(0, 6).map((p) => ({ label: p.name, value: Number(p.gross_profit) })) };
+          answerText = tr(`The highest recorded item gross profit is ${sorted[0].name}: ${fmtKes(Number(sorted[0].gross_profit))}.`, `Bidhaa yenye faida ghafi kubwa ni ${sorted[0].name}: ${fmtKes(Number(sorted[0].gross_profit))}.`);
+          if (Number(total.estimated_costs)) answerText += tr(' Some costs are estimates.', ' Baadhi ya gharama ni makadirio.');
+        }
+      } else {
+        if (!canSales) answerText = tr('Ask about inventory, customers or other information available to your role.', 'Uliza kuhusu stoo, wateja au taarifa nyingine zinazopatikana kwa jukumu lako.');
+        else if (!Number(total.orders)) answerText = tr('There are no sales records in the last 45 days for the selected branches.', 'Hakuna rekodi za mauzo katika siku 45 zilizopita kwa matawi yaliyochaguliwa.');
+        else {
+          kpis = [{ label: tr('Recorded sales', 'Mauzo yaliyorekodiwa'), value: fmtKes(Number(total.revenue)) }, { label: tr('Sales records', 'Rekodi za mauzo'), value: String(total.orders) }];
+          if (canFinance && expenses.length) kpis.push({ label: tr('Recorded expenses', 'Matumizi yaliyorekodiwa'), value: fmtKes(expenseSum) });
+          chart = { type: 'bar', title: tr('Daily recorded sales', 'Mauzo ya kila siku'), data: daily.slice(-14).map((d) => ({ label: String(d.date).slice(5), value: Number(d.revenue) })) };
+          answerText = tr(`Your selected branches recorded ${fmtKes(Number(total.revenue))} in sales over the last 45 days.`, `Matawi yaliyochaguliwa yalirekodi mauzo ya ${fmtKes(Number(total.revenue))} katika siku 45 zilizopita.`);
+          if (!hasCosts && canFinance) answerText += tr(' Profit is unavailable until missing costs are added.', ' Faida haipatikani hadi gharama zilizokosekana ziwekwe.');
+        }
       }
-
-      await client.query(
-        `INSERT INTO ai_usage_records (tenant_id, user_id, conversation_id, prompt_tokens, completion_tokens, tools_invoked)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [ctx.tenantId, user.userId, conversationId, Math.ceil(question.length / 4), Math.ceil(answerText.length / 4), toolsExecuted.length],
-      );
-      await client.query(`UPDATE ai_conversations SET updated_at = NOW() WHERE id = $1`, [conversationId]);
-
-      return { assistantMessage };
+      followUps = lang === 'sw' ? ['Onyesha njia za malipo', 'Tabiri mauzo ya siku 14'] : ['Show recorded payment methods', 'Forecast the next 14 days'];
+      const provenance = { organization: ctx.tenantName, branchScope: effectiveBranch ? tr('Selected branch', 'Tawi lililochaguliwa') : tr('Authorized branches', 'Matawi yanayoruhusiwa'),
+        period: periodLabel, toolsExecuted: tools, groundedInDatabase: true, synthesisMode: 'recorded_data', generatedAt: new Date().toISOString() };
+      await client.query(`INSERT INTO ai_messages (tenant_id, conversation_id, role, content, language, intent) VALUES ($1,$2,'user',$3,$4,$5)`,
+        [ctx.tenantId, conversationId, question, lang, intent]);
+      const msg = await client.query(`INSERT INTO ai_messages (tenant_id, conversation_id, role, content, language, intent, provenance, supporting_data, follow_up_questions)
+        VALUES ($1,$2,'assistant',$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb) RETURNING *`,
+        [ctx.tenantId, conversationId, answerText, lang, intent, JSON.stringify(provenance), JSON.stringify({ kpis, chart, recommendations, calculations }), JSON.stringify(followUps)]);
+      if (convRes.rows[0].title.startsWith('New ') || convRes.rows[0].title.startsWith('Mazungumzo')) {
+        await client.query(`UPDATE ai_conversations SET title=$3, language=$4, updated_at=NOW() WHERE tenant_id=$1 AND id=$2`, [ctx.tenantId, conversationId, question.slice(0,80), lang]);
+      } else await client.query(`UPDATE ai_conversations SET updated_at=NOW() WHERE tenant_id=$1 AND id=$2`, [ctx.tenantId, conversationId]);
+      await client.query(`INSERT INTO ai_usage_records (tenant_id,user_id,conversation_id,prompt_tokens,completion_tokens,tools_invoked) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [ctx.tenantId, user.userId, conversationId, Math.ceil(question.length/4), Math.ceil(answerText.length/4), tools.length]);
+      return { assistantMessage: msg.rows[0] };
     });
   }
 
@@ -1126,6 +718,10 @@ export class AiController {
       throw new BadRequestException('rating must be 1 or -1');
     }
     return this.db.withTenant(ctx.tenantId, async (client) => {
+      const owned = await client.query(`SELECT c.security_scope FROM ai_messages m JOIN ai_conversations c
+        ON c.tenant_id=m.tenant_id AND c.id=m.conversation_id
+        WHERE m.tenant_id=$1 AND m.id=$2 AND m.role='assistant' AND c.user_id=$3`, [ctx.tenantId, messageId, user.userId]);
+      if (!owned.rowCount || !this.mayReadConversation(ctx, owned.rows[0].security_scope)) throw new BadRequestException('Message not found');
       await client.query(
         `INSERT INTO ai_response_feedback (tenant_id, message_id, user_id, rating, comment)
          VALUES ($1,$2,$3,$4,$5)

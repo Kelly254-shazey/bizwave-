@@ -8,11 +8,26 @@
 # =============================================================================
 set -euo pipefail
 
-DOMAIN="${1:?Usage: $0 <domain> <email>}"
+REQUESTED_DOMAIN="${1:?Usage: $0 <domain> <email>}"
 EMAIL="${2:?Usage: $0 <domain> <email>}"
+if [[ ${#REQUESTED_DOMAIN} -gt 253 || ! "$REQUESTED_DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ || "$REQUESTED_DOMAIN" == *..* ]]; then
+  echo 'Please supply a valid DNS hostname.' >&2
+  exit 2
+fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env.production"
+[[ -f "$ENV_FILE" ]] || { echo 'Run the deployment script first.' >&2; exit 1; }
+# Confirm the certificate hostname matches the existing deployment.
+set -a
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+set +a
+if [[ "${DOMAIN:-}" != "$REQUESTED_DOMAIN" ]]; then
+  echo 'The requested hostname differs from DOMAIN in .env.production.' >&2
+  exit 1
+fi
+DOMAIN="$REQUESTED_DOMAIN"
 
 cd "$ROOT_DIR"
 

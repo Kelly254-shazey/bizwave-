@@ -1,437 +1,144 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  BarChart3,
-  Bell,
-  Building2,
-  ChevronRight,
-  CreditCard,
-  FileSpreadsheet,
-  Globe,
-  LayoutDashboard,
-  Lock,
-  LogOut,
-  Menu,
-  MessageSquare,
-  Search,
-  Settings,
-  ShieldCheck,
-  Sparkles,
-  TrendingUp,
-  Users,
-  X,
+  BarChart3, Building2, ChevronDown, ChevronRight, CircleHelp, CreditCard, FileBarChart,
+  FileUp, Globe2, LayoutDashboard, LogOut, Menu, Package, Receipt, Settings2,
+  Sparkles, TrendingUp, Users, Wallet, X,
 } from 'lucide-react';
 import { useAuth } from '../stores/authStore';
-import { BrandLogo } from '../components/BrandLogo';
-import { formatKes, t } from '../i18n/translations';
-import { apiRequest } from '../services/api';
+import '../styles/portal.css';
+
+type NavItem = { to: string; label: string; icon: React.ElementType; visible: boolean; tab?: string; badge?: string };
 
 export const AppLayout: React.FC = () => {
-  const {
-    user,
-    organizations,
-    activeOrg,
-    branches,
-    selectedBranchId,
-    setSelectedBranchId,
-    language,
-    setLanguage,
-    logout,
-    hasPermission,
-    hasFeature,
-  } = useAuth();
+  const { user, organizations, activeOrg, branches, selectedBranchId, setSelectedBranchId, language, setLanguage, logout, hasPermission } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any | null>(null);
-  const [showNotif, setShowNotif] = useState(false);
-  const searchTimerRef = useRef<number | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const sw = language === 'sw';
+  const tr = (en: string, kiswahili: string) => sw ? kiswahili : en;
 
   useEffect(() => {
-    return () => {
-      if (searchTimerRef.current) window.clearTimeout(searchTimerRef.current);
-    };
-  }, []);
+    document.documentElement.lang = sw ? 'sw' : 'en';
+  }, [sw]);
 
-  const handleSearch = (val: string) => {
-    setSearchQuery(val);
-    if (searchTimerRef.current) window.clearTimeout(searchTimerRef.current);
-    if (val.trim().length < 2) {
-      setSearchResults(null);
-      return;
-    }
-    searchTimerRef.current = window.setTimeout(async () => {
-      try {
-        const res = await apiRequest(`/analytics/search?q=${encodeURIComponent(val.trim())}`);
-        setSearchResults(res);
-      } catch {
-        setSearchResults(null);
-      }
-    }, 250);
-  };
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname, location.search]);
 
-  // Streamlined 4-Pillar SME Client Portal Navigation (Zero clutter, zero Learn/Community)
-  const navGroups = [
-    {
-      heading: language === 'sw' ? 'Nguzo za BizWave' : 'BizWave Intelligence',
-      items: [
-        { to: '/app/dashboard', label: t(language, 'app_dashboard'), icon: LayoutDashboard, show: true, locked: false },
-        {
-          to: '/app/analytics',
-          label: t(language, 'app_analytics'),
-          icon: BarChart3,
-          show: hasPermission('analytics:read') || hasPermission('sales:read') || hasPermission('inventory:read'),
-          locked: false,
-        },
-        {
-          to: '/app/predict',
-          label: t(language, 'app_predict'),
-          icon: TrendingUp,
-          show: hasPermission('predict:sales') || hasPermission('predict:demand') || hasPermission('predict:cashflow'),
-          locked: !hasFeature('predict_basic'),
-        },
-        {
-          to: '/app/ai',
-          label: t(language, 'app_ai'),
-          icon: Sparkles,
-          show: hasPermission('ai:use'),
-          locked: !hasFeature('ai_assistant'),
-        },
-        {
-          to: '/app/connect',
-          label: t(language, 'app_connect'),
-          icon: MessageSquare,
-          show: hasPermission('connect:read') || hasPermission('customers:read'),
-          locked: !hasFeature('connect_core'),
-        },
-      ],
-    },
-    {
-      heading: language === 'sw' ? 'Usimamizi wa Akaunti' : 'Business & Plan',
-      items: [
-        { to: '/app/reports', label: t(language, 'app_reports'), icon: FileSpreadsheet, show: hasPermission('reports:read'), locked: false },
-        {
-          to: '/app/billing',
-          label: language === 'sw' ? 'Mpango & Huduma' : 'Subscription & Services',
-          icon: CreditCard,
-          show: hasPermission('billing:read') || hasPermission('audit:read'),
-          locked: false,
-        },
-        { to: '/app/team', label: t(language, 'app_team'), icon: Users, show: hasPermission('users:read'), locked: false },
-        { to: '/app/settings', label: t(language, 'app_settings'), icon: Settings, show: hasPermission('org:read'), locked: false },
-      ],
-    },
-  ]
-    .map((g) => ({ ...g, items: g.items.filter((i) => i.show) }))
-    .filter((g) => g.items.length > 0);
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    closeButtonRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setSidebarOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sidebarOpen]);
 
-  const flatItems = navGroups.flatMap((g) => g.items);
-  const currentPageLabel =
-    flatItems.find((i) => location.pathname.startsWith(i.to))?.label ||
-    (location.pathname.includes('onboarding') ? 'Business Setup' : 'Overview');
+  const groups: { label: string; items: NavItem[] }[] = [
+    { label: tr('WORKSPACE', 'NAFASI YA KAZI'), items: [
+      { to: '/app/dashboard', label: tr('Overview', 'Muhtasari'), icon: LayoutDashboard, visible: true },
+      { to: '/app/analytics?tab=sales', tab: 'sales', label: tr('Sales', 'Mauzo'), icon: Receipt, visible: hasPermission('sales:read') },
+      { to: '/app/analytics?tab=finance', tab: 'finance', label: tr('Expenses', 'Matumizi'), icon: Wallet, visible: hasPermission('finance:read') },
+      { to: '/app/analytics?tab=inventory', tab: 'inventory', label: tr('Inventory', 'Stoo'), icon: Package, visible: hasPermission('inventory:read') },
+      { to: '/app/customer-communications', label: tr('Customers', 'Wateja'), icon: Users, visible: hasPermission('customers:read') || hasPermission('connect:read') },
+      { to: '/app/analytics?tab=imports', tab: 'imports', label: tr('Data & imports', 'Data na faili'), icon: FileUp, visible: hasPermission('imports:read') },
+    ]},
+    { label: tr('INSIGHTS', 'UCHAMBUZI'), items: [
+      { to: '/app/predict', label: tr('Forecasts', 'Utabiri'), icon: TrendingUp, badge: 'AI', visible: hasPermission('predict:sales') || hasPermission('predict:demand') || hasPermission('predict:cashflow') },
+      { to: '/app/ai', label: tr('AI assistant', 'Msaidizi wa AI'), icon: Sparkles, badge: 'EN/SW', visible: hasPermission('ai:use') },
+      { to: '/app/connect', label: tr('Business network', 'Mtandao wa biashara'), icon: Globe2, visible: hasPermission('connect:read') },
+      { to: '/app/analytics?tab=website', tab: 'website', label: tr('Website sync', 'Unganisha tovuti'), icon: BarChart3, visible: hasPermission('analytics:read') },
+    ]},
+    { label: tr('MANAGE', 'SIMAMIA'), items: [
+      { to: '/app/reports', label: tr('Reports', 'Ripoti'), icon: FileBarChart, visible: hasPermission('reports:read') },
+      { to: '/app/team', label: tr('Team', 'Timu'), icon: Users, visible: hasPermission('users:read') },
+      { to: '/app/settings', label: tr('Settings', 'Mipangilio'), icon: Settings2, visible: hasPermission('org:read') },
+      { to: '/app/billing', label: tr('Subscription', 'Mpango wa malipo'), icon: CreditCard, visible: hasPermission('billing:read') || hasPermission('audit:read') },
+    ]},
+  ];
+  const currentTab = new URLSearchParams(location.search).get('tab') || 'sales';
+  const isActive = (item: NavItem) => item.tab
+    ? location.pathname === '/app/analytics' && currentTab === item.tab
+    : location.pathname === item.to;
+  const currentLabel = groups.flatMap((group) => group.items).find(isActive)?.label || (location.pathname.includes('onboarding') ? tr('Business setup', 'Sanidi biashara') : tr('Workspace', 'Nafasi ya kazi'));
+  const initials = `${user?.firstName?.[0] || ''}${user?.lastName?.[0] || ''}`.toUpperCase() || 'BW';
+  const role = activeOrg?.roles?.[0]?.replace(/_/g, ' ') || tr('Member', 'Mwanachama');
 
-  const handleLogout = async () => {
-    await logout();
-    navigate('/login');
-  };
-
-  // Presentation-matched Deep Midnight Navy Sidebar (#041527) + Mint-Teal (#2ED3C2) active indicators
-  const SidebarContent = (
-    <div className="flex flex-col h-full bg-[#041527] text-slate-200 border-r border-white/10 w-64">
-      <div className="h-16 px-5 flex items-center justify-between border-b border-white/10">
-        <Link to="/app/dashboard" className="min-w-0">
-          <BrandLogo
-            variant="light"
-            customName={activeOrg?.display_name || activeOrg?.name}
-            customLogoUrl={activeOrg?.logo_url}
-            brandColor="#2ED3C2"
-            size="sm"
-          />
+  const handleLogout = async () => { await logout(); navigate('/login'); };
+  const sidebar = (
+    <div className="portal-sidebar-inner">
+      <div className="portal-brand-row">
+        <Link to="/app/dashboard" className="portal-brand" aria-label={tr('BizWave dashboard', 'Muhtasari wa BizWave')}>
+          <svg className="portal-brand-mark" viewBox="0 0 36 36" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="34" height="34" rx="10" />
+            <path d="M8 11.5c3-2.8 5.3 2.8 8.3 0s5.3 2.8 8.3 0 3.4-.9 3.4-.9M8 18c3-2.8 5.3 2.8 8.3 0s5.3 2.8 8.3 0 3.4-.9 3.4-.9M8 24.5c3-2.8 5.3 2.8 8.3 0s5.3 2.8 8.3 0 3.4-.9 3.4-.9" />
+          </svg>
+          <span className="portal-brand-name">BIZ <em>WAVE</em></span>
+          <span className="portal-brand-badge" aria-hidden="true">AI SME</span>
         </Link>
-        <button
-          className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:bg-white/10 hover:text-white"
-          onClick={() => setSidebarOpen(false)}
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <button ref={closeButtonRef} type="button" className="portal-icon-button lg:hidden" onClick={() => setSidebarOpen(false)} aria-label={tr('Close navigation', 'Funga menyu')}><X size={19} /></button>
       </div>
-
-      {activeOrg && (
-        <div className="px-4 py-3.5 border-b border-white/10">
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="uppercase tracking-wider font-bold text-[#041527] bg-[#2ED3C2] px-2.5 py-0.5 rounded-full">
-              {activeOrg.plan_code}
-            </span>
-            <span className="text-slate-400 capitalize">{activeOrg.industry_code.replace('_', ' ')}</span>
-          </div>
-          <div className="mt-2 text-[11px] text-slate-400 truncate capitalize">
-            {activeOrg.roles.map((r) => r.replace(/_/g, ' ')).join(', ')}
-          </div>
-          {organizations.length > 1 && (
-            <button
-              type="button"
-              onClick={() => navigate('/app/select-organization')}
-              className="mt-2.5 w-full flex items-center justify-center gap-1.5 text-[11px] font-semibold py-1.5 px-2.5 rounded-lg bg-white/10 hover:bg-white/15 text-white transition-colors"
-            >
-              <Building2 className="w-3.5 h-3.5 text-[#2ED3C2]" />
-              {t(language, 'switch_org')} ({organizations.length})
-            </button>
-          )}
+      <div className="portal-workspace-card">
+        <div className="portal-workspace-icon"><Building2 size={17} /></div>
+        <div className="min-w-0 flex-1">
+          <div className="portal-workspace-label">{tr('YOUR BUSINESS', 'BIASHARA YAKO')}</div>
+          <div className="portal-workspace-name" title={activeOrg?.display_name}>{activeOrg?.display_name || activeOrg?.name || 'BizWave'}</div>
         </div>
-      )}
-
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-5">
-        {navGroups.map((group) => (
-          <div key={group.heading}>
-            <div className="px-3 mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-              {group.heading}
-            </div>
-            <div className="space-y-1">
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    onClick={() => setSidebarOpen(false)}
-                    className={({ isActive }) =>
-                      `flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all ${
-                        isActive
-                          ? 'bg-[#2ED3C2] text-[#041527] font-bold shadow-sm'
-                          : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                      }`
-                    }
-                  >
-                    <span className="flex items-center gap-2.5">
-                      <Icon className="w-4 h-4 shrink-0" />
-                      {item.label}
-                    </span>
-                    {item.locked && <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
-                  </NavLink>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+        {organizations.length > 1 && <button type="button" className="portal-icon-button" onClick={() => navigate('/app/select-organization')} aria-label={tr('Switch business', 'Badili biashara')}><ChevronDown size={16} /></button>}
+      </div>
+      <nav className="portal-nav" aria-label={tr('Main navigation', 'Menyu kuu')}>
+        {groups.map((group) => {
+          const items = group.items.filter((item) => item.visible);
+          if (!items.length) return null;
+          return <div className="portal-nav-group" key={group.label}>
+            <div className="portal-nav-heading">{group.label}</div>
+            {items.map((item) => {
+              const Icon = item.icon;
+              return <Link key={item.to} to={item.to} aria-current={isActive(item) ? 'page' : undefined} className={`portal-nav-link ${isActive(item) ? 'is-active' : ''}`}><Icon size={17} strokeWidth={1.8} /><span className="portal-nav-label">{item.label}</span>{item.badge && <span className="portal-nav-badge" aria-hidden="true">{item.badge}</span>}</Link>;
+            })}
+          </div>;
+        })}
       </nav>
-
-      {/* Non-custodial Record & Analyse Clarity Pill */}
-      <div className="px-3 pb-2">
-        <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-[10px] text-slate-400 leading-relaxed flex items-start gap-2">
-          <ShieldCheck className="w-3.5 h-3.5 text-[#2ED3C2] shrink-0 mt-0.5" />
-          <span>Record &amp; Analyse Workspace. Only BizWave plan &amp; service fees are billed.</span>
+      <div className="portal-sidebar-bottom">
+        <Link to="/contact" className="portal-support-link"><CircleHelp size={17} />{tr('Help & support', 'Msaada')}</Link>
+        <div className="portal-user-row">
+          <div className="portal-avatar">{initials}</div>
+          <div className="min-w-0 flex-1"><div className="portal-user-name">{user?.firstName} {user?.lastName}</div><div className="portal-user-role">{role}</div></div>
+          <button type="button" className="portal-icon-button" onClick={handleLogout} title={tr('Sign out', 'Toka')} aria-label={tr('Sign out', 'Toka')}><LogOut size={17} /></button>
         </div>
-      </div>
-
-      <div className="p-3 border-t border-white/10">
-        <div className="px-3 py-1.5 mb-1">
-          <div className="text-xs font-semibold text-white truncate">
-            {user?.firstName} {user?.lastName}
-          </div>
-          <div className="text-[11px] text-slate-400 truncate">{user?.email}</div>
-        </div>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-slate-400 hover:bg-white/10 hover:text-white transition-colors"
-        >
-          <LogOut className="w-4 h-4" />
-          {t(language, 'sign_out')}
-        </button>
       </div>
     </div>
   );
 
-  return (
-    <div className="min-h-screen flex bg-[#F4F7FA] text-slate-900">
-      <aside className="hidden lg:block shrink-0 sticky top-0 h-screen">{SidebarContent}</aside>
-
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden flex">
-          <div className="fixed inset-0 bg-[#041527]/60 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
-          <div className="relative z-10">{SidebarContent}</div>
+  return <div className="portal">
+    <aside className="portal-sidebar hidden lg:block">{sidebar}</aside>
+    {sidebarOpen && <div className="portal-mobile-drawer lg:hidden" role="dialog" aria-modal="true" aria-label={tr('Navigation', 'Menyu')}>
+      <button type="button" className="portal-drawer-backdrop" aria-label={tr('Close navigation', 'Funga menyu')} onClick={() => setSidebarOpen(false)} />
+      <aside className="portal-drawer-panel">{sidebar}</aside>
+    </div>}
+    <div className="portal-shell">
+      <header className="portal-topbar">
+        <div className="portal-topbar-left">
+          <button type="button" className="portal-icon-button lg:hidden" onClick={() => setSidebarOpen(true)} aria-label={tr('Open navigation', 'Fungua menyu')}><Menu size={21} /></button>
+          <div className="portal-breadcrumb"><span>{tr('WORKSPACE', 'NAFASI YA KAZI')}</span><ChevronRight size={14} /><strong>{currentLabel}</strong></div>
         </div>
-      )}
-
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="sticky top-0 z-30 h-14 bg-white/95 backdrop-blur border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <button
-              type="button"
-              className="lg:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100"
-              onClick={() => setSidebarOpen(true)}
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-
-            {branches.length > 0 && (
-              <select
-                aria-label="Select Branch"
-                value={selectedBranchId}
-                onChange={(e) => setSelectedBranchId(e.target.value)}
-                className="text-xs sm:text-[13px] font-semibold bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-slate-800 max-w-[210px] truncate focus:outline-none focus:border-teal-600"
-              >
-                {branches.length > 1 && <option value="all">{t(language, 'all_branches')}</option>}
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name} ({b.code})
-                  </option>
-                ))}
-              </select>
-            )}
-
-            <div className="relative hidden md:block w-72">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => handleSearch(e.target.value)}
-                onBlur={() => setTimeout(() => setSearchResults(null), 200)}
-                placeholder={t(language, 'search_placeholder')}
-                className="w-full pl-9 pr-3 py-1.5 text-[13px] bg-slate-100 border border-transparent rounded-lg focus:outline-none focus:bg-white focus:border-slate-300 transition-colors"
-              />
-              {searchResults && (
-                <div className="absolute left-0 right-0 mt-2 bg-white border border-slate-200 rounded-xl shadow-xl p-3 z-50 text-xs space-y-2 max-h-72 overflow-y-auto">
-                  {searchResults.products?.length > 0 && (
-                    <div>
-                      <div className="font-semibold text-slate-400 uppercase text-[10px] mb-1">Products</div>
-                      {searchResults.products.map((p: any) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onMouseDown={() => {
-                            setSearchResults(null);
-                            navigate('/app/analytics?tab=inventory');
-                          }}
-                          className="w-full py-1.5 px-2 rounded-lg hover:bg-slate-50 flex justify-between text-slate-700 text-left"
-                        >
-                          <span>{p.name}</span>
-                          <span className="font-medium text-teal-700">{formatKes(p.selling_price)}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {searchResults.customers?.length > 0 && (
-                    <div>
-                      <div className="font-semibold text-slate-400 uppercase text-[10px] mb-1">Customers</div>
-                      {searchResults.customers.map((c: any) => (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onMouseDown={() => {
-                            setSearchResults(null);
-                            navigate('/app/connect');
-                          }}
-                          className="w-full py-1.5 px-2 rounded-lg hover:bg-slate-50 flex justify-between text-slate-700 text-left"
-                        >
-                          <span>{c.full_name}</span>
-                          <span className="text-slate-400">{c.phone_number}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {searchResults.sales?.length > 0 && (
-                    <div>
-                      <div className="font-semibold text-slate-400 uppercase text-[10px] mb-1">Recorded Sales</div>
-                      {searchResults.sales.map((s: any) => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onMouseDown={() => {
-                            setSearchResults(null);
-                            navigate('/app/analytics?tab=sales');
-                          }}
-                          className="w-full py-1.5 px-2 rounded-lg hover:bg-slate-50 flex justify-between text-slate-700 text-left"
-                        >
-                          <code>{s.transaction_ref}</code>
-                          <span className="font-medium text-teal-700">{formatKes(s.total_amount)}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {!searchResults.products?.length && !searchResults.customers?.length && !searchResults.sales?.length && (
-                    <div className="text-slate-400 py-1">No matching records in {activeOrg?.display_name}.</div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setLanguage(language === 'en' ? 'sw' : 'en')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50"
-              title="Switch English / Kiswahili"
-            >
-              <Globe className="w-3.5 h-3.5 text-teal-600" />
-              {language === 'en' ? 'EN' : 'SW'}
-            </button>
-
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowNotif((v) => !v)}
-                className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-navy-950 relative"
-                aria-label="Alerts"
-              >
-                <Bell className="w-4 h-4" />
-                <span className="w-2 h-2 rounded-full bg-[#2ED3C2] absolute top-1.5 right-1.5" />
-              </button>
-              {showNotif && (
-                <div className="absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-xl p-3.5 z-50 text-xs space-y-2">
-                  <div className="font-semibold text-navy-950">Decision Shortcuts</div>
-                  <Link
-                    to="/app/analytics?tab=inventory"
-                    onClick={() => setShowNotif(false)}
-                    className="block p-2.5 rounded-lg bg-amber-50 hover:bg-amber-100/80 text-amber-900 border border-amber-200/60 transition-colors"
-                  >
-                    Check <strong>Analytics → Inventory</strong> for low-stock replenishment needs →
-                  </Link>
-                  <Link
-                    to="/app/ai"
-                    onClick={() => setShowNotif(false)}
-                    className="block p-2.5 rounded-lg bg-teal-50 hover:bg-teal-100/80 text-teal-900 border border-teal-200/60 transition-colors"
-                  >
-                    Open <strong>BizWave AI</strong> for today&apos;s executive health briefing →
-                  </Link>
-                  <div className="p-2.5 rounded-lg bg-slate-50 text-slate-600">
-                    Isolated tenant security active for <strong>{activeOrg?.display_name}</strong>.
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </header>
-
-        {activeOrg && !activeOrg.onboarding_completed && !location.pathname.includes('/onboarding') && (
-          <div className="bg-[#041527] text-white px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs border-b border-white/10">
-            <span>{t(language, 'onboarding_banner')} (Step {activeOrg.onboarding_step}/11)</span>
-            <Link
-              to="/app/onboarding"
-              className="px-3.5 py-1 rounded-lg bg-[#2ED3C2] hover:bg-[#5ce2d4] text-[#041527] font-bold transition-colors"
-            >
-              {t(language, 'continue_setup')}
-            </Link>
-          </div>
-        )}
-
-        <div className="px-4 sm:px-6 pt-4 pb-1 flex items-center justify-between gap-2 text-xs text-slate-400">
-          <div className="flex items-center gap-1.5">
-            <span>{activeOrg?.display_name || 'BizWave'}</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-            <span className="text-slate-700 font-semibold">{currentPageLabel}</span>
-          </div>
-          <span className="hidden sm:inline text-[11px] text-slate-500">
-            Business records for analysis &amp; decision making
-          </span>
+        <div className="portal-topbar-right">
+          {activeOrg && (organizations.length > 1 ? <Link to="/app/select-organization" className="portal-business-chip" aria-label={tr('Switch business', 'Badili biashara')} title={activeOrg.display_name || activeOrg.name}>
+            <Building2 size={15} /><span className="portal-business-name">{activeOrg.display_name || activeOrg.name}</span>{activeOrg.currency_code && <span className="portal-currency">{activeOrg.currency_code}</span>}<ChevronDown size={13} />
+          </Link> : <div className="portal-business-chip" title={activeOrg.display_name || activeOrg.name}>
+            <Building2 size={15} /><span className="portal-business-name">{activeOrg.display_name || activeOrg.name}</span>{activeOrg.currency_code && <span className="portal-currency">{activeOrg.currency_code}</span>}
+          </div>)}
+          {branches.length > 0 && <label className="portal-branch-picker"><Building2 size={15} /><span className="sr-only">{tr('Select branch', 'Chagua tawi')}</span><select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)}>
+            {branches.length > 1 && <option value="all">{tr('All branches', 'Matawi yote')}</option>}
+            {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+          </select><ChevronDown size={14} /></label>}
+          <button type="button" className="portal-language" onClick={() => setLanguage(sw ? 'en' : 'sw')} aria-label={tr('Switch to Kiswahili', 'Badili kwenda Kiingereza')} title={tr('Switch to Kiswahili', 'Badili kwenda Kiingereza')}><Globe2 size={16} /><span>{sw ? 'SW' : 'EN'}</span><ChevronDown size={13} /></button>
+          <div className="portal-header-user"><div className="portal-header-user-text"><strong>{user?.firstName} {user?.lastName}</strong><span>{user?.email}</span></div><div className="portal-avatar small">{initials}</div></div>
         </div>
-
-        <main className="flex-1 p-4 sm:p-6 max-w-[1360px] w-full mx-auto">
-          <Outlet />
-        </main>
-      </div>
+      </header>
+      {activeOrg && hasPermission('org:manage') && !activeOrg.onboarding_completed && !location.pathname.includes('/onboarding') && <div className="portal-setup-banner"><span>{tr('Finish setting up your business to get the most from BizWave.', 'Kamilisha usanidi wa biashara yako ili kutumia BizWave kikamilifu.')}</span><Link to="/app/onboarding">{tr('Continue setup', 'Endelea na usanidi')} <ChevronRight size={15} /></Link></div>}
+      <main className="portal-page" id="main-content"><Outlet /></main>
     </div>
-  );
+  </div>;
 };

@@ -4,6 +4,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Post,
@@ -27,8 +28,11 @@ const MAX_BYTES = 10 * 1024 * 1024;
 
 function autoMapColumns(datasetType: string, headers: string[]): Record<string, string> {
   const lower = headers.map((h) => ({ raw: h, norm: h.toLowerCase().replace(/[^a-z0-9]/g, '') }));
-  const find = (candidates: string[]) =>
-    lower.find((c) => candidates.some((k) => c.norm.includes(k)))?.raw || '';
+  const find = (candidates: string[]) => {
+    for (const k of candidates) { const exact = lower.find((c) => c.norm === k); if (exact) return exact.raw; }
+    for (const k of candidates) { const match = lower.find((c) => c.norm.includes(k)); if (match) return match.raw; }
+    return '';
+  };
 
   if (datasetType === 'sales') {
     return {
@@ -38,7 +42,9 @@ function autoMapColumns(datasetType: string, headers: string[]): Record<string, 
       sku: find(['sku', 'code', 'barcode']),
       quantity: find(['qty', 'quantity', 'units']),
       unit_price: find(['unitprice', 'price', 'rate']),
-      total_amount: find(['total', 'amount', 'revenue', 'sales']),
+      total_amount: find(['totalamount', 'salestotal', 'revenue', 'sales', 'amount', 'total']),
+      cost_of_goods_sold: find(['costofgoodssold', 'totalcost', 'cogs']),
+      tax_amount: find(['taxamount', 'vatamount', 'tax', 'vat']),
       payment_method: find(['payment', 'method', 'mpesa', 'channel']),
       customer_name: find(['customer', 'client', 'buyer']),
     };
@@ -113,6 +119,30 @@ export class ImportsController {
     fs.mkdirSync(envConfig.uploadDir, { recursive: true });
   }
 
+  private assertDatasetWrite(ctx: TenantAuthContext, datasetType: string) {
+    const required: Record<string, string> = { sales: 'sales:write', expenses: 'finance:write', mpesa: 'finance:write', products: 'inventory:write', customers: 'customers:write' };
+    const permission = required[datasetType];
+    if (permission && !ctx.permissions.includes(permission)) throw new ForbiddenException(`Your role cannot import ${datasetType} records.`);
+  }
+
+
+  private readableDatasets(ctx: TenantAuthContext): string[] {
+    const result: string[] = [];
+    if (ctx.permissions.includes('sales:read') || ctx.permissions.includes('sales:write')) result.push('sales');
+    if (ctx.permissions.includes('finance:read') || ctx.permissions.includes('finance:write')) result.push('expenses', 'mpesa');
+    if (ctx.permissions.includes('inventory:read') || ctx.permissions.includes('inventory:write')) result.push('products');
+    if (ctx.permissions.includes('customers:read') || ctx.permissions.includes('customers:write')) result.push('customers');
+    return result;
+  }
+
+  private assertJobVisible(ctx: TenantAuthContext, user: AuthenticatedUser, job: any) {
+    // Raw spreadsheet previews can contain costs or arbitrary private columns.
+    if (!this.readableDatasets(ctx).includes(job.dataset_type) ||
+        (!ctx.permissions.includes('finance:read') && job.created_by !== user.userId)) {
+      throw new BadRequestException('Import job not found');
+    }
+  }
+
   @Get('data-sources')
   @RequirePermissions('imports:read')
   async listDataSources(@TenantCtx() ctx: TenantAuthContext) {
@@ -123,9 +153,9 @@ export class ImportsController {
                   (SELECT COUNT(*)::int FROM data_source_credentials dsc WHERE dsc.data_source_id = ds.id) AS stored_credential_keys
            FROM data_sources ds
            LEFT JOIN integration_providers ip ON ip.id = ds.provider_id
-           WHERE ds.tenant_id = $1
+           WHERE ds.tenant_id = $1 AND ($2::uuid[] IS NULL OR ds.branch_id = ANY($2::uuid[]))
            ORDER BY ds.created_at DESC`,
-          [ctx.tenantId],
+          [ctx.tenantId, ctx.allowedBranchIds],
         ),
         client.query(`SELECT * FROM integration_providers WHERE is_active = TRUE ORDER BY name ASC`),
       ]);
@@ -151,7 +181,17 @@ export class ImportsController {
     if (!body.name || !body.sourceType) {
       throw new BadRequestException('name and sourceType are required');
     }
+    let requestedBranch = body.branchId && body.branchId !== 'all' ? body.branchId : null;
+    if (ctx.allowedBranchIds !== null) {
+      if (requestedBranch && !ctx.allowedBranchIds.includes(requestedBranch)) throw new ForbiddenException('Branch access denied.');
+      if (!requestedBranch && ctx.allowedBranchIds.length === 1) requestedBranch = ctx.allowedBranchIds[0];
+      if (!requestedBranch) throw new BadRequestException('Choose an assigned branch for this data source.');
+    }
     const created = await this.db.withTenant(ctx.tenantId, async (client) => {
+      if (requestedBranch) {
+        const b = await client.query(`SELECT id FROM branches WHERE tenant_id=$1 AND id=$2 AND status='active'`, [ctx.tenantId, requestedBranch]);
+        if (!b.rowCount) throw new BadRequestException('Branch not found.');
+      }
       let providerId: string | null = null;
       if (body.providerCode) {
         const pr = await client.query(`SELECT id FROM integration_providers WHERE code = $1`, [
@@ -162,7 +202,7 @@ export class ImportsController {
       const ds = await client.query(
         `INSERT INTO data_sources (tenant_id, branch_id, provider_id, name, source_type, status, created_by)
          VALUES ($1, $2, $3, $4, $5, 'configured', $6) RETURNING *`,
-        [ctx.tenantId, body.branchId || null, providerId, body.name, body.sourceType, user.userId],
+        [ctx.tenantId, requestedBranch, providerId, body.name, body.sourceType, user.userId],
       );
       // Encrypt every credential key at rest using AES-256-GCM (NEVER plaintext!)
       if (body.credentials) {
@@ -197,17 +237,18 @@ export class ImportsController {
 
   @Get('imports')
   @RequirePermissions('imports:read')
-  async listImports(@TenantCtx() ctx: TenantAuthContext) {
+  async listImports(@TenantCtx() ctx: TenantAuthContext, @CurrentUser() user: AuthenticatedUser) {
     return this.db.withTenant(ctx.tenantId, async (client) => {
       const res = await client.query(
         `SELECT j.*, uf.original_filename, uf.file_size_bytes, b.name AS branch_name
          FROM data_import_jobs j
          LEFT JOIN uploaded_files uf ON uf.tenant_id = j.tenant_id AND uf.id = j.uploaded_file_id
          LEFT JOIN branches b ON b.tenant_id = j.tenant_id AND b.id = j.branch_id
-         WHERE j.tenant_id = $1
+         WHERE j.tenant_id = $1 AND ($2::uuid[] IS NULL OR j.branch_id = ANY($2::uuid[]))
+           AND j.dataset_type = ANY($3::text[]) AND ($4::boolean OR j.created_by = $5)
          ORDER BY j.created_at DESC
          LIMIT 50`,
-        [ctx.tenantId],
+        [ctx.tenantId, ctx.allowedBranchIds, this.readableDatasets(ctx), ctx.permissions.includes('finance:read'), user.userId],
       );
       return { imports: res.rows };
     });
@@ -215,16 +256,17 @@ export class ImportsController {
 
   @Get('imports/:id')
   @RequirePermissions('imports:read')
-  async getImport(@Param('id') id: string, @TenantCtx() ctx: TenantAuthContext) {
+  async getImport(@Param('id') id: string, @TenantCtx() ctx: TenantAuthContext, @CurrentUser() user: AuthenticatedUser) {
     return this.db.withTenant(ctx.tenantId, async (client) => {
       const jobRes = await client.query(
         `SELECT j.*, uf.original_filename, uf.file_size_bytes
          FROM data_import_jobs j
          LEFT JOIN uploaded_files uf ON uf.tenant_id = j.tenant_id AND uf.id = j.uploaded_file_id
-         WHERE j.tenant_id = $1 AND j.id = $2`,
-        [ctx.tenantId, id],
+         WHERE j.tenant_id = $1 AND j.id = $2 AND ($3::uuid[] IS NULL OR j.branch_id = ANY($3::uuid[]))`,
+        [ctx.tenantId, id, ctx.allowedBranchIds],
       );
       if (jobRes.rowCount === 0) throw new BadRequestException('Import job not found');
+      this.assertJobVisible(ctx, user, jobRes.rows[0]);
       const errRes = await client.query(
         `SELECT * FROM import_validation_errors WHERE tenant_id = $1 AND import_job_id = $2 ORDER BY row_number ASC LIMIT 200`,
         [ctx.tenantId, id],
@@ -248,6 +290,9 @@ export class ImportsController {
       throw new BadRequestException('Invalid datasetType');
     }
 
+    this.assertDatasetWrite(ctx, datasetType);
+    if (ctx.allowedBranchIds !== null && !ctx.allowedBranchIds.length) throw new ForbiddenException('No branch is assigned to your role.');
+    if (body.branchId && body.branchId !== 'all' && ctx.allowedBranchIds !== null && !ctx.allowedBranchIds.includes(body.branchId)) throw new ForbiddenException('Branch access denied.');
     let buffer: Buffer;
     let originalName: string;
     let mimeType: string;
@@ -278,7 +323,8 @@ export class ImportsController {
       throw new BadRequestException('Security inspection rejected binary executable payload.');
     }
 
-    const parsed = parseUploadedRows(buffer, ext);
+    let parsed: { headers: string[]; rows: Record<string, any>[] };
+    try { parsed = parseUploadedRows(buffer, ext); } catch { throw new BadRequestException('Could not read the file. Check its format and try again.'); }
     if (parsed.rows.length === 0) {
       throw new BadRequestException('Uploaded file contains no data rows.');
     }
@@ -298,11 +344,17 @@ export class ImportsController {
           `SELECT * FROM data_import_jobs WHERE tenant_id = $1 AND idempotency_key = $2`,
           [ctx.tenantId, body.idempotencyKey],
         );
-        if (dup.rowCount && dup.rowCount > 0) return dup.rows[0];
+        if (dup.rowCount && dup.rowCount > 0) {
+          if (ctx.allowedBranchIds !== null && !ctx.allowedBranchIds.includes(dup.rows[0].branch_id)) throw new ForbiddenException('Import key is unavailable.');
+          this.assertJobVisible(ctx, user, dup.rows[0]);
+          if (dup.rows[0].dataset_type !== datasetType) throw new BadRequestException('Import key is already used for another dataset.');
+          return dup.rows[0];
+        }
       }
 
       // Resolve default branch if none supplied
-      let branchId = body.branchId || null;
+      let branchId = body.branchId && body.branchId !== 'all' ? body.branchId : (ctx.allowedBranchIds?.[0] || null);
+      if (branchId && ctx.allowedBranchIds !== null && !ctx.allowedBranchIds.includes(branchId)) throw new ForbiddenException('Branch access denied.');
       if (!branchId) {
         const bRes = await client.query(
           `SELECT id FROM branches WHERE tenant_id = $1 AND status = 'active' ORDER BY is_headquarters DESC LIMIT 1`,
@@ -358,17 +410,20 @@ export class ImportsController {
     @Param('id') id: string,
     @Body() body: { columnMapping?: Record<string, string> },
     @TenantCtx() ctx: TenantAuthContext,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.db.withTenant(ctx.tenantId, async (client) => {
       const jobRes = await client.query(
         `SELECT j.*, uf.stored_path, uf.original_filename
          FROM data_import_jobs j
          JOIN uploaded_files uf ON uf.tenant_id = j.tenant_id AND uf.id = j.uploaded_file_id
-         WHERE j.tenant_id = $1 AND j.id = $2`,
-        [ctx.tenantId, id],
+         WHERE j.tenant_id = $1 AND j.id = $2 AND ($3::uuid[] IS NULL OR j.branch_id = ANY($3::uuid[]))`,
+        [ctx.tenantId, id, ctx.allowedBranchIds],
       );
       if (jobRes.rowCount === 0) throw new BadRequestException('Import job not found');
       const job = jobRes.rows[0];
+      this.assertJobVisible(ctx, user, job);
+      this.assertDatasetWrite(ctx, job.dataset_type);
       const mapping = body.columnMapping || job.column_mapping || {};
 
       const ext = path.extname(job.original_filename).toLowerCase();
@@ -428,9 +483,17 @@ export class ImportsController {
           if (!dtStr || Number.isNaN(Date.parse(dtStr))) {
             rowErrors.push({ col: mapping.transaction_date || 'transaction_date', code: 'INVALID_DATE', msg: `Invalid date '${dtStr}'`, val: dtStr });
           }
-          if (!amtStr || Number.isNaN(amt) || amt <= 0) {
+          if (!amtStr || !Number.isFinite(amt) || amt <= 0) {
             rowErrors.push({ col: mapping.total_amount || 'total_amount', code: 'INVALID_AMOUNT', msg: `Amount must be a positive number (got '${amtStr}')`, val: amtStr });
           }
+          for (const field of ['cost_of_goods_sold', 'tax_amount']) {
+            const raw = getVal(row, field).replace(/,/g, '');
+            if (raw && (!Number.isFinite(Number(raw)) || Number(raw) < 0 || (field === 'tax_amount' && Number(raw) > amt)))
+              rowErrors.push({ col: mapping[field] || field, code: 'INVALID_AMOUNT', msg: `Invalid ${field.replace(/_/g, ' ')}`, val: raw });
+          }
+          const payment = getVal(row, 'payment_method').toLowerCase().replace(/[-\s]/g, '');
+          if (payment && !['mpesa','cash','card','banktransfer','credit'].includes(payment))
+            rowErrors.push({ col: mapping.payment_method || 'payment_method', code: 'INVALID_PAYMENT', msg: 'Use M-Pesa, cash, card, bank transfer or credit, or leave blank.', val: payment });
         } else if (job.dataset_type === 'expenses') {
           const ref = getVal(row, 'expense_ref');
           const dtStr = getVal(row, 'expense_date');
@@ -522,11 +585,13 @@ export class ImportsController {
         `SELECT j.*, uf.stored_path, uf.original_filename
          FROM data_import_jobs j
          JOIN uploaded_files uf ON uf.tenant_id = j.tenant_id AND uf.id = j.uploaded_file_id
-         WHERE j.tenant_id = $1 AND j.id = $2`,
-        [ctx.tenantId, id],
+         WHERE j.tenant_id = $1 AND j.id = $2 AND ($3::uuid[] IS NULL OR j.branch_id = ANY($3::uuid[]))`,
+        [ctx.tenantId, id, ctx.allowedBranchIds],
       );
       if (jobRes.rowCount === 0) throw new BadRequestException('Import job not found');
       const job = jobRes.rows[0];
+      this.assertJobVisible(ctx, user, job);
+      this.assertDatasetWrite(ctx, job.dataset_type);
       if (job.status === 'completed' || job.status === 'completed_with_errors') {
         return { importJob: job, alreadyCommitted: true, insertedCount: job.accepted_records };
       }
@@ -558,31 +623,39 @@ export class ImportsController {
           const ref = getVal(row, 'transaction_ref');
           const dt = new Date(getVal(row, 'transaction_date'));
           const total = Number(getVal(row, 'total_amount').replace(/,/g, ''));
-          const qty = Math.max(1, Number(getVal(row, 'quantity').replace(/,/g, '')) || 1);
-          const prodName = getVal(row, 'product_name') || 'Imported Item';
+          const qtyRaw = getVal(row, 'quantity').replace(/,/g, '');
+          const qty = Number(qtyRaw);
+          const prodName = getVal(row, 'product_name');
           const sku = getVal(row, 'sku') || null;
-          const pmRaw = getVal(row, 'payment_method').toLowerCase();
-          const pm = ['mpesa', 'cash', 'card', 'bank_transfer', 'credit'].includes(pmRaw) ? pmRaw : 'mpesa';
-          const subtotal = Number((total / 1.16).toFixed(2));
-          const tax = Number((total - subtotal).toFixed(2));
-          const estCogs = Number((subtotal * 0.62).toFixed(2));
+          const pmRaw = getVal(row, 'payment_method').toLowerCase().replace(/[-\s]/g, '');
+          const paymentMethods: Record<string, string> = { mpesa: 'mpesa', cash: 'cash', card: 'card', banktransfer: 'bank_transfer', credit: 'credit' };
+          const pm = paymentMethods[pmRaw] || null;
+          const rawCost = getVal(row, 'cost_of_goods_sold').replace(/,/g, '');
+          const rawTax = getVal(row, 'tax_amount').replace(/,/g, '');
+          const cost = rawCost === '' ? 0 : Number(rawCost);
+          const tax = rawTax === '' ? 0 : Number(rawTax);
+          const subtotal = Number((total - tax).toFixed(2));
 
           const saleIns = await client.query(
             `INSERT INTO sales (
                tenant_id, branch_id, transaction_ref, source_system, source_record_id, import_job_id,
-               transaction_date, payment_status, currency_code, subtotal, tax_amount, total_amount, cost_of_goods_sold, created_by
-             ) VALUES ($1,$2,$3,'spreadsheet_import',$3,$4,$5,'paid','KES',$6,$7,$8,$9,$10)
+               transaction_date, payment_status, currency_code, subtotal, tax_amount, total_amount, cost_of_goods_sold, created_by, cost_basis
+             ) VALUES ($1,$2,$3,'spreadsheet_import',$3,$4,$5,'paid','KES',$6,$7,$8,$9,$10,$11)
              ON CONFLICT (tenant_id, transaction_ref) DO NOTHING RETURNING id`,
-            [ctx.tenantId, job.branch_id, ref, id, dt.toISOString(), subtotal, tax, total, estCogs, user.userId],
+            [ctx.tenantId, job.branch_id, ref, id, dt.toISOString(), subtotal, tax, total, cost, user.userId, rawCost === '' ? 'unknown' : 'actual'],
           );
           if (saleIns.rowCount && saleIns.rowCount > 0) {
             const saleId = saleIns.rows[0].id;
-            await client.query(
-              `INSERT INTO sales_items (tenant_id, sale_id, product_name_snapshot, sku_snapshot, quantity, unit_price, unit_cost, tax_amount, line_total)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-              [ctx.tenantId, saleId, prodName, sku, qty, Number((total / qty).toFixed(2)), Number((estCogs / qty).toFixed(2)), tax, total],
-            );
-            await client.query(
+            // Do not fabricate a product or quantity when the spreadsheet lacks one.
+            if (prodName && Number.isFinite(qty) && qty > 0) {
+              await client.query(
+                `INSERT INTO sales_items (tenant_id, sale_id, product_name_snapshot, sku_snapshot, quantity, unit_price, unit_cost, tax_amount, line_total)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+                [ctx.tenantId, saleId, prodName, sku, qty, Number((total / qty).toFixed(2)), Number((cost / qty).toFixed(2)), tax, total],
+              );
+            }
+            // Missing payment method is unknown, not automatically M-Pesa.
+            if (pm) await client.query(
               `INSERT INTO sales_payments (tenant_id, sale_id, payment_method, amount, reconciliation_status, paid_at)
                VALUES ($1,$2,$3,$4,'recorded',$5)`,
               [ctx.tenantId, saleId, pm, total, dt.toISOString()],

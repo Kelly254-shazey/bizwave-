@@ -10,7 +10,7 @@ export interface MsingiSynthesisResult {
   voiceId: string;
   language: string;
   charactersCount: number;
-  estimatedCostKes: number;
+  estimatedCostKes: number | null;
   requestId: string | null;
   fallbackText: string;
   notice: string;
@@ -27,14 +27,10 @@ export interface MsingiTranscriptionResult {
 }
 
 /**
- * Official Server-Side Adapter for the MsingiAI Platform API (https://api.msingiai.com).
- *
- * Security & Cost Controls:
- * - Reads MSINGI_API_KEY strictly from server env vars (NEVER sent to browser, URLs, or logs).
- * - Enforces documented Msingi limits (max 2,000 chars per TTS call, 10MB max audio upload).
- * - Sends deterministic SHA-256 `Idempotency-Key` so retries within 24h never incur duplicate billing.
- * - Handles 402 (insufficient_balance), 403, 422, and network timeouts without ever faking audio.
- * - Supports self-hosted open-weight `msingiai/sauti-tts` (MIT/CC-BY-SA-4.0) by setting MSINGI_BASE_URL.
+ * Optional server-side speech adapter. The provider API, self-hosted endpoint
+ * compatibility, pricing and billing semantics have not been verified in this
+ * release. A configured key is not proof of a working provider connection.
+ * Secrets remain server-side, text is capped, and failed calls return no audio.
  */
 @Injectable()
 export class MsingiLanguageService {
@@ -50,14 +46,14 @@ export class MsingiLanguageService {
       provider: 'MsingiAI Sauti (Kenya)',
       baseUrl: envConfig.msingiBaseUrl,
       configured,
-      activeMode: configured ? 'msingi_sauti_api' : 'browser_web_speech_fallback',
+      activeMode: configured ? 'provider_configured_unverified' : 'browser_web_speech_fallback',
       supportedCapabilities: {
-        swahiliTts: true,
-        swahiliEnglishShengAsr: true,
+        swahiliTts: 'provider compatibility unverified',
+        swahiliEnglishShengAsr: 'provider compatibility unverified',
         selfHostableOpenWeights: 'https://huggingface.co/msingiai/sauti-tts',
       },
       pricingTransparency:
-        'MsingiAI Playground & open-weight models (msingiai/sauti-tts, msingiai/sauti-asr) are free to try/self-host. Hosted API inference (api.msingiai.com) uses pay-as-you-go prepaid KES credit (KES 6.00 / 1,000 TTS chars, KES 1.90 / min ASR; no monthly subscription).',
+        'Provider availability, compatibility and pricing have not been verified for this release. Check with the provider before enabling.',
       requiredServerEnvVars: configured ? [] : ['MSINGI_API_KEY', 'MSINGI_BASE_URL (optional for self-hosted)'],
     };
   }
@@ -69,9 +65,10 @@ export class MsingiLanguageService {
   }): Promise<MsingiSynthesisResult> {
     const cleanedText = params.text.replace(/[\u0000-\u001F\u007F]/g, ' ').trim().slice(0, 2000);
     const voiceId = (params.voiceId || envConfig.msingiDefaultVoice || 'female3').replace(/[^a-zA-Z0-9_-]/g, '');
-    const estimatedCostKes = Number(((cleanedText.length / 1000) * 6.0).toFixed(2));
+    // Actual provider pricing is not known or verified by this release.
+    const estimatedCostKes = null;
 
-    // Only invoke MsingiAI hosted API when server key is configured AND text is Swahili/Sheng (Sauti's specialty)
+    // Without a server key, return text for an optional browser fallback.
     if (!this.isConfigured()) {
       return {
         provider: 'browser_web_speech_fallback',
@@ -85,7 +82,7 @@ export class MsingiLanguageService {
         requestId: null,
         fallbackText: cleanedText,
         notice:
-          'MsingiAI API key (MSINGI_API_KEY) is not configured on the server. Using zero-cost browser Web Speech playback locally. Set MSINGI_API_KEY (or self-host open-weight msingiai/sauti-tts via MSINGI_BASE_URL) for native Kenyan Sauti WAV speech.',
+          'The speech provider is not configured. The browser may offer Web Speech playback, depending on device and language support. Provider compatibility has not been verified.',
       };
     }
 
@@ -145,13 +142,13 @@ export class MsingiLanguageService {
           voiceId,
           language: params.language,
           charactersCount: cleanedText.length,
-          estimatedCostKes: 0,
+          estimatedCostKes: null,
           requestId,
           fallbackText: cleanedText,
           notice:
             response.status === 402
-              ? 'MsingiAI workspace prepaid balance is insufficient (HTTP 402). Falling back to free browser Web Speech playback.'
-              : `MsingiAI speech endpoint returned ${errorCode}. Falling back safely to browser Web Speech playback.`,
+              ? 'The speech provider returned HTTP 402. The browser may offer Web Speech fallback; any provider charge is unknown.'
+              : `The speech provider returned ${errorCode}. The browser may offer Web Speech fallback; any provider charge is unknown.`,
         };
       }
 
@@ -185,10 +182,10 @@ export class MsingiLanguageService {
         voiceId,
         language: params.language,
         charactersCount: cleanedText.length,
-        estimatedCostKes: 0,
+        estimatedCostKes: null,
         requestId: null,
         fallbackText: cleanedText,
-        notice: 'MsingiAI API could not be reached within timeout. Using free browser Web Speech fallback.',
+        notice: 'The speech provider could not be reached. The browser may offer Web Speech fallback; any provider charge is unknown.',
       };
     } finally {
       clearTimeout(timer);
@@ -209,7 +206,7 @@ export class MsingiLanguageService {
         speechDetected: null,
         requestId: null,
         notice:
-          'MsingiAI ASR requires server-side MSINGI_API_KEY (or self-hosted msingiai/sauti-asr via MSINGI_BASE_URL). You can still type your question or use browser microphone dictation for free.',
+          'The speech transcription provider is not configured. You can type your question or use browser dictation where available.',
       };
     }
 

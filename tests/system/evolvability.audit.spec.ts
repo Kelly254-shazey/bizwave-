@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ROOT = '/home/user/bizwave';
+const ROOT = path.resolve(__dirname, '../..');
 let passed = 0;
 
 function check(name: string, fn: () => void) {
@@ -32,15 +32,17 @@ function main() {
     assert.ok(beTs.compilerOptions.strictNullChecks !== false, 'Backend should not disable strictNullChecks');
   });
 
-  check('Versioned, ordered SQL Migrations (001..007) with rollback script & zero ORM auto-sync', () => {
-    const migs = fs.readdirSync(path.join(ROOT, 'database/migrations')).filter((f) => f.endsWith('.sql')).sort();
-    assert.ok(migs.length >= 7, `Expected >= 7 SQL migrations, found ${migs.length}`);
-    assert.ok(migs[0].startsWith('001_') && migs[migs.length - 1].startsWith('007_'));
+  check('Ordered versioned SQL migrations and incremental deployment runner are present', () => {
+    const migs = fs.readdirSync(path.join(ROOT, 'database/migrations')).filter((f) => /^[0-9]{3}_.*\.sql$/.test(f)).sort();
+    assert.ok(migs.length >= 8, `Expected at least 8 SQL migrations, found ${migs.length}`);
+    migs.forEach((name, index) => assert.equal(Number(name.slice(0, 3)), index + 1, `Migration order invalid: ${name}`));
     assert.ok(fs.existsSync(path.join(ROOT, 'database/migrations/rollback/rollback_all.sql')), 'Rollback script must exist');
+    const deploy = fs.readFileSync(path.join(ROOT, 'scripts/deploy-vps.sh'), 'utf8');
+    assert.ok(deploy.includes('apply-migrations.sh'), 'Deployment must use incremental migration runner');
   });
 
   check('Modular Provider Adapter Isolation (MsingiAI, SMS/WhatsApp, Intelligence Engine decoupled from core domain)', () => {
-    const msingiSrc = fs.readFileSync(path.join(ROOT, 'backend/src/modules/learn/msingi.service.ts'), 'utf8');
+    const msingiSrc = fs.readFileSync(path.join(ROOT, 'backend/src/modules/ai/msingi.service.ts'), 'utf8');
     assert.ok(msingiSrc.includes('msingiBaseUrl'), 'MsingiAI base URL must be configurable for open-weight self-hosting');
     const envSrc = fs.readFileSync(path.join(ROOT, 'backend/src/config/env.config.ts'), 'utf8');
     assert.ok(envSrc.includes('intelligenceUrl'), 'Intelligence engine URL must be env-configurable');
@@ -53,7 +55,7 @@ function main() {
     }
   });
 
-  check('Static Security Hygiene: Zero live production secrets or dangerous eval() in source tree', () => {
+  check('Static hygiene scan for eval and common provider-key patterns', () => {
     const srcFiles = [
       ...walkFiles(path.join(ROOT, 'backend/src'), ['.ts']),
       ...walkFiles(path.join(ROOT, 'frontend/src'), ['.ts', '.tsx']),
@@ -77,7 +79,7 @@ function main() {
     assert.ok(fs.existsSync(path.join(ROOT, 'infrastructure/scripts/restore-postgres.sh')), 'Restore script missing');
   });
 
-  check('Zero unsafe SQL template interpolation of request input in backend queries', () => {
+  check('Static scan for common direct request-input SQL interpolation patterns', () => {
     const beFiles = walkFiles(path.join(ROOT, 'backend/src'), ['.ts']);
     for (const f of beFiles) {
       const content = fs.readFileSync(f, 'utf8');

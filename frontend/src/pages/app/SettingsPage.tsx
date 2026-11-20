@@ -20,6 +20,8 @@ export const SettingsPage: React.FC = () => {
   const [sessions, setSessions] = useState<any[]>([]);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
+  const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' });
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     apiRequest('/auth/sessions')
@@ -56,6 +58,17 @@ export const SettingsPage: React.FC = () => {
     } catch (e: any) {
       setErr(e.message);
     }
+  };
+
+  const changePassword = async (event: React.FormEvent) => {
+    event.preventDefault(); setErr(''); setMsg('');
+    if (passwords.next !== passwords.confirm) { setErr('The new passwords do not match.'); return; }
+    setChangingPassword(true);
+    try {
+      const res = await apiRequest('/auth/change-password', { method: 'POST', body: { currentPassword: passwords.current, newPassword: passwords.next } });
+      setPasswords({ current: '', next: '', confirm: '' }); setMsg(res.message);
+    } catch (e: any) { setErr(e.message || 'Could not change your password.'); }
+    finally { setChangingPassword(false); }
   };
 
   const startMfa = async () => {
@@ -166,6 +179,17 @@ export const SettingsPage: React.FC = () => {
           </form>
         )}
       </div>
+
+      <form onSubmit={changePassword} className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
+        <h2 className="text-sm font-bold text-navy-950 flex items-center gap-2"><KeyRound className="w-4 h-4 text-teal-600" /> Change your password</h2>
+        <p className="text-xs text-slate-600">Use at least eight characters, including an uppercase letter and a number. Other sessions will be signed out.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <label className="text-xs text-slate-600">Current password<input aria-label="Current password" type="password" required autoComplete="current-password" value={passwords.current} onChange={(e) => setPasswords({ ...passwords, current: e.target.value })} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg" /></label>
+          <label className="text-xs text-slate-600">New password<input aria-label="New password" type="password" required minLength={8} maxLength={128} pattern="(?=.*[A-Z])(?=.*[0-9]).{8,}" title="Use an uppercase letter and a number." autoComplete="new-password" value={passwords.next} onChange={(e) => setPasswords({ ...passwords, next: e.target.value })} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg" /></label>
+          <label className="text-xs text-slate-600">Confirm new password<input aria-label="Confirm new password" type="password" required minLength={8} maxLength={128} autoComplete="new-password" value={passwords.confirm} onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })} className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg" /></label>
+        </div>
+        <button type="submit" disabled={changingPassword} className="px-4 py-2 rounded-xl bg-navy-950 text-white text-xs font-semibold disabled:opacity-50">{changingPassword ? 'Changing…' : 'Change password'}</button>
+      </form>
 
       {/* MFA & Session Security */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

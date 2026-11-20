@@ -76,6 +76,7 @@ services:
         condition: service_healthy
     environment:
       NODE_ENV: ${NODE_ENV:-development}
+      PORTAL_FEATURE_GATING_ENABLED: ${PORTAL_FEATURE_GATING_ENABLED:-false}
       PORT: 4000
       HOST: 0.0.0.0
       DATABASE_URL: ${DATABASE_URL:-postgresql://bizwave_app:change_me_app_password@postgres:5432/bizwave}
@@ -85,6 +86,9 @@ services:
       APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?APP_ENCRYPTION_KEY is required}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:8080}
       WEBHOOK_SIGNING_SECRET: ${WEBHOOK_SIGNING_SECRET:?WEBHOOK_SIGNING_SECRET is required}
+      MSINGI_BASE_URL: ${MSINGI_BASE_URL:-https://api.msingiai.com}
+      MSINGI_API_KEY: ${MSINGI_API_KEY:-}
+      MSINGI_DEFAULT_VOICE: ${MSINGI_DEFAULT_VOICE:-female3}
       TZ: Africa/Nairobi
     ports:
       - "127.0.0.1:4000:4000"

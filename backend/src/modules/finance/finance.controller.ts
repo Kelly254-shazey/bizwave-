@@ -50,8 +50,9 @@ export class FinanceController {
            JOIN cash_accounts ca ON ca.tenant_id = ct.tenant_id AND ca.id = ct.cash_account_id
            WHERE ct.tenant_id = $1
              AND ($2::uuid IS NULL OR ct.branch_id = $2::uuid)
+             AND ($3::uuid[] IS NULL OR ct.branch_id = ANY($3::uuid[]))
            ORDER BY ct.transaction_date DESC LIMIT 40`,
-          [ctx.tenantId, effectiveBranch],
+          [ctx.tenantId, effectiveBranch, ctx.allowedBranchIds],
         ),
         client.query(`SELECT * FROM payables WHERE tenant_id = $1 AND status <> 'paid' ORDER BY due_date ASC`, [ctx.tenantId]),
         client.query(`SELECT * FROM receivables WHERE tenant_id = $1 AND status <> 'paid' ORDER BY due_date ASC`, [ctx.tenantId]),
@@ -63,19 +64,20 @@ export class FinanceController {
                 SUM(CASE WHEN direction='inflow' THEN amount ELSE 0 END)::NUMERIC(14,2) AS inflows,
                 SUM(CASE WHEN direction='outflow' THEN amount ELSE 0 END)::NUMERIC(14,2) AS outflows
          FROM cash_transactions
-         WHERE tenant_id = $1
+         WHERE tenant_id = $1 AND ($2::uuid IS NULL OR branch_id = $2::uuid)
+           AND ($3::uuid[] IS NULL OR branch_id = ANY($3::uuid[]))
          GROUP BY record_status`,
-        [ctx.tenantId],
+        [ctx.tenantId, effectiveBranch, ctx.allowedBranchIds],
       );
 
       return {
         expenses: expenses.rows,
         categories: categories.rows,
-        cashAccounts: cashAccounts.rows,
+        cashAccounts: !effectiveBranch && ctx.allowedBranchIds === null ? cashAccounts.rows : [],
         cashTransactions: cashTx.rows,
         reconciliationSummary: statusTotals.rows,
-        payables: payables.rows,
-        receivables: receivables.rows,
+        payables: !effectiveBranch && ctx.allowedBranchIds === null ? payables.rows : [],
+        receivables: !effectiveBranch && ctx.allowedBranchIds === null ? receivables.rows : [],
       };
     });
   }
@@ -132,8 +134,8 @@ export class FinanceController {
     const updated = await this.db.withTenant(ctx.tenantId, async (client) => {
       const res = await client.query(
         `UPDATE cash_transactions SET record_status = 'reconciled'
-         WHERE tenant_id = $1 AND id = $2 RETURNING *`,
-        [ctx.tenantId, txId],
+         WHERE tenant_id = $1 AND id = $2 AND ($3::uuid[] IS NULL OR branch_id = ANY($3::uuid[])) RETURNING *`,
+        [ctx.tenantId, txId, ctx.allowedBranchIds],
       );
       if (res.rowCount === 0) throw new BadRequestException('Cash transaction not found');
       if (res.rows[0].matched_sale_id) {

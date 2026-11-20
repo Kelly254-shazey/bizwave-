@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { formatKes, t, translations } from '../src/i18n/translations';
 import { ApiError } from '../src/services/api';
+import { formatCompactAxis, formatKesPrecise } from '../src/utils/format';
 
 let passed = 0;
 function unit(name: string, fn: () => void) {
@@ -34,6 +35,23 @@ unit('formatKes() formats positive, zero, negative reversal, null, undefined, an
   assert.equal(formatKes(null), '—');
   assert.equal(formatKes(undefined), '—');
   assert.equal(formatKes(Number.NaN), '—');
+});
+
+unit('Precise KES labels show cents without turning missing amounts into zero', () => {
+  assert.equal(formatKesPrecise(935), 'KES 935.00');
+  assert.equal(formatKesPrecise('2162.16'), 'KES 2,162.16');
+  assert.equal(formatKesPrecise(-1.5), 'KES -1.50');
+  assert.equal(formatKesPrecise(null), '—');
+  assert.equal(formatKesPrecise(''), '—');
+  assert.equal(formatKesPrecise(Number.POSITIVE_INFINITY), '—');
+});
+
+unit('Compact chart labels keep the sign, use appropriate units, and handle invalid values', () => {
+  assert.equal(formatCompactAxis(935), '935');
+  assert.equal(formatCompactAxis(1_200), '1.2k');
+  assert.equal(formatCompactAxis(1_200_000), '1.2m');
+  assert.equal(formatCompactAxis(-2_000_000_000), '-2b');
+  assert.equal(formatCompactAxis(Number.NaN), '—');
 });
 
 unit('ApiError preserves HTTP status code, readable message, and structured backend details', () => {

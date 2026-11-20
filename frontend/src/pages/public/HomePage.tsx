@@ -1,71 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
   BarChart3,
   CheckCircle2,
-  Cog,
   Lock,
-  MessageCircle,
   MessageSquare,
-  Puzzle,
   ShieldCheck,
   Sparkles,
   TrendingUp,
 } from 'lucide-react';
-import { apiRequest } from '../../services/api';
-
-const PLAN_TOP_BAR: Record<string, string> = {
-  starter: 'from-sky-400 to-cyan-400',
-  growth: 'from-cyan-400 to-[#2ED3C2]',
-  intelligence: 'from-[#2ED3C2] to-emerald-400',
-  enterprise: 'from-emerald-400 to-lime-400',
-};
-
-const PLAN_AUDIENCE: Record<string, string> = {
-  starter: 'For micro businesses',
-  growth: 'For growing SMEs',
-  intelligence: 'For data-driven SMEs',
-  enterprise: 'For multi-branch operations',
-};
-
-const PLAN_HIGHLIGHTS: Record<string, string[]> = {
-  starter: [
-    'Spreadsheet & manual record uploads',
-    'Essential sales and expense KPIs',
-    'Clean executive dashboard',
-    'Monthly business summary',
-  ],
-  growth: [
-    'Automated imports where available',
-    'Sales, customer & inventory dashboards',
-    'Weekly management reports',
-    'Low-stock & operational alerts',
-    'Basic demand & sales forecasts',
-  ],
-  intelligence: [
-    'Advanced sales, demand & cash-flow forecasts',
-    'Customer RFM segmentation & anomaly detection',
-    'BizWave AI assistant (English & Kiswahili)',
-    'What-If financial simulator & reports',
-  ],
-  enterprise: [
-    'Consolidated multi-branch analytics',
-    'Custom KPIs & industry templates',
-    'POS, accounting & channel integrations',
-    'Role-based access & dedicated support',
-  ],
-};
 
 export const HomePage: React.FC = () => {
-  const [plans, setPlans] = useState<any[]>([]);
-
-  useEffect(() => {
-    apiRequest<{ plans: any[] }>('/subscriptions/plans', { skipAuth: true })
-      .then((res) => setPlans(res.plans || []))
-      .catch(() => setPlans([]));
-  }, []);
-
   return (
     <div className="bg-[#041527] text-white">
       {/* =====================================================================
@@ -143,7 +89,7 @@ export const HomePage: React.FC = () => {
                     { label: 'Analytics', sub: 'Live KPIs & P&L', icon: BarChart3 },
                     { label: 'Predict', sub: 'Cash & Demand', icon: TrendingUp },
                     { label: 'BizWave AI', sub: 'EN & Kiswahili', icon: Sparkles },
-                    { label: 'Connect', sub: 'SMS · WhatsApp', icon: MessageSquare },
+                    { label: 'Connect', sub: 'Business network', icon: MessageSquare },
                   ].map((item) => (
                     <div key={item.label} className="p-3.5 rounded-xl bg-[#041527]/85 border border-white/10">
                       <item.icon className="w-4 h-4 text-[#2ED3C2] mb-2" />
@@ -240,7 +186,7 @@ export const HomePage: React.FC = () => {
               One Connected Platform. <span className="text-[#2ED3C2]">Four Powerful Pillars.</span>
             </h2>
             <p className="mt-3 text-sm sm:text-base text-slate-300">
-              Everything a Kenyan SME needs to unify business records, forecast ahead, ask AI in plain language, and act through customer channels.
+              Bring business records together, explore forecasts, ask questions in plain language, and discover opted-in businesses.
             </p>
           </div>
 
@@ -268,7 +214,7 @@ export const HomePage: React.FC = () => {
                 icon: MessageSquare,
                 title: 'BizWave Connect',
                 tag: 'Pillar 04',
-                desc: 'Connects Voice, SMS, WhatsApp, and USSD with Kenya DPA consent controls and measurable interaction analytics.',
+                desc: 'Discover businesses that choose to publish a profile and manage customer consent. Outbound messaging is not connected yet.',
               },
             ].map((p) => (
               <div key={p.title} className="slide-card rounded-2xl p-6 flex flex-col">
@@ -362,130 +308,7 @@ export const HomePage: React.FC = () => {
       </section>
 
       {/* =====================================================================
-          5. MODULAR PLANS & PRICING (Cleanly Placed Inside the Page — NOT in Top Nav)
-         ===================================================================== */}
-      <section id="pricing" className="bg-[#031121] border-b border-white/10 py-20 sm:py-24">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-            <div>
-              <div className="text-xs font-bold uppercase tracking-widest text-[#2ED3C2]">Plans &amp; Pricing</div>
-              <h2 className="mt-2 text-3xl sm:text-4xl font-extrabold text-white">
-                Modular KES Plans That <span className="text-[#2ED3C2]">Grow With You.</span>
-              </h2>
-              <p className="mt-2 text-sm sm:text-base text-slate-300 max-w-xl">
-                Start lean with spreadsheets and upgrade only as your data, branches, and AI automation scale.
-              </p>
-            </div>
-            <div className="inline-flex items-start gap-2.5 px-4 py-3 rounded-xl bg-[#09223B] border border-[#2ED3C2]/30 max-w-md text-xs text-slate-200">
-              <ShieldCheck className="w-4 h-4 text-[#2ED3C2] shrink-0 mt-0.5" />
-              <span>
-                <strong className="text-white">Record &amp; Analyse Only:</strong> No customer payments pass through BizWave. Only BizWave subscriptions and platform add-on services are billed.
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-            {(plans.length > 0
-              ? plans
-              : [
-                  { code: 'starter', name: 'Starter', price_range_label: 'KES 1,500–2,500 / month' },
-                  { code: 'growth', name: 'Growth', price_range_label: 'KES 4,500–7,500 / month' },
-                  { code: 'intelligence', name: 'Intelligence', price_range_label: 'KES 10,000–18,000 / month' },
-                  { code: 'enterprise', name: 'Multi-Branch / Enterprise', price_range_label: 'From KES 25,000 / month' },
-                ]
-            ).map((plan) => (
-              <div
-                key={plan.code}
-                className={`slide-card rounded-2xl overflow-hidden flex flex-col justify-between ${
-                  plan.code === 'intelligence' ? 'ring-2 ring-[#2ED3C2]/80' : ''
-                }`}
-              >
-                <div>
-                  <div className={`h-1.5 bg-gradient-to-r ${PLAN_TOP_BAR[plan.code] || 'from-[#2ED3C2] to-cyan-400'}`} />
-                  <div className="p-6">
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="text-base font-extrabold uppercase tracking-wide text-[#2ED3C2]">{plan.name}</h3>
-                      {plan.code === 'intelligence' && (
-                        <span className="px-2 py-0.5 rounded-full bg-[#2ED3C2]/15 border border-[#2ED3C2]/40 text-[10px] font-bold text-[#2ED3C2]">
-                          Popular
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-3 text-xl font-extrabold text-white">
-                      {plan.price_range_label || `KES ${Number(plan.monthly_price_kes).toLocaleString()} / month`}
-                    </div>
-                    <div className="mt-1 text-xs font-medium text-emerald-400">
-                      {PLAN_AUDIENCE[plan.code] || 'For Kenyan SMEs'}
-                    </div>
-                    <div className="my-4 h-px bg-white/10" />
-                    <ul className="space-y-2.5 text-xs sm:text-sm text-slate-300">
-                      {(PLAN_HIGHLIGHTS[plan.code] || []).map((line) => (
-                        <li key={line} className="flex items-start gap-2">
-                          <CheckCircle2 className="w-4 h-4 text-[#2ED3C2] shrink-0 mt-0.5" />
-                          <span>{line}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-                <div className="px-6 pb-6">
-                  <Link
-                    to="/register"
-                    className={`block w-full text-center py-2.5 rounded-xl text-xs font-bold transition-colors ${
-                      plan.code === 'intelligence'
-                        ? 'bg-[#2ED3C2] text-[#041527] hover:bg-[#5ce2d4]'
-                        : 'bg-white/10 text-white hover:bg-[#2ED3C2] hover:text-[#041527]'
-                    }`}
-                  >
-                    Start with {plan.name}
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* 3 Platform Add-On Services Strip */}
-          <div className="mt-6 slide-card rounded-2xl p-6 grid grid-cols-1 md:grid-cols-3 gap-6 divide-y md:divide-y-0 md:divide-x divide-white/10">
-            <div className="flex items-start gap-3.5 pt-2 md:pt-0">
-              <Cog className="w-6 h-6 text-sky-400 shrink-0 mt-0.5" />
-              <div>
-                <h4 className="text-xs font-extrabold uppercase tracking-wider text-sky-400">One-Time Setup &amp; Services</h4>
-                <p className="mt-1.5 text-xs text-slate-300 leading-relaxed">
-                  Guided onboarding · Data cleaning &amp; migration · System integrations · Staff training
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3.5 pt-5 md:pt-0 md:pl-6">
-              <MessageCircle className="w-6 h-6 text-[#2ED3C2] shrink-0 mt-0.5" />
-              <div>
-                <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#2ED3C2]">Usage-Based Add-Ons</h4>
-                <p className="mt-1.5 text-xs text-slate-300 leading-relaxed">
-                  Voice-agent minutes · SMS &amp; WhatsApp conversations · USSD transactions · Extra branches &amp; users
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3.5 pt-5 md:pt-0 md:pl-6">
-              <Puzzle className="w-6 h-6 text-lime-400 shrink-0 mt-0.5" />
-              <div>
-                <h4 className="text-xs font-extrabold uppercase tracking-wider text-lime-400">Custom Projects &amp; Partnerships</h4>
-                <p className="mt-1.5 text-xs text-slate-300 leading-relaxed">
-                  Bespoke ML &amp; forecasting · BI consulting · API integrations · Channel partnerships
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
-            <span>Indicative KES pricing for SME onboarding; final plans depend on usage, data volume, and integrations.</span>
-            <Link to="/pricing" className="font-bold text-[#2ED3C2] hover:underline inline-flex items-center gap-1">
-              View full plan comparison &amp; FAQ <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* =====================================================================
-          6. FINAL CTA — Sustainable Growth Backdrop
+          5. FINAL CTA — Sustainable Growth Backdrop
          ===================================================================== */}
       <section className="relative overflow-hidden py-20 sm:py-24">
         <div className="absolute inset-0">
@@ -506,7 +329,7 @@ export const HomePage: React.FC = () => {
               Start From Your Existing Spreadsheets — Grow Into Full AI Intelligence.
             </h2>
             <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
-              Launch your isolated BizWave workspace in 60 seconds with zero demo clutter, strict Kenya DPA 2019 privacy, and English &amp; Kiswahili AI guidance.
+              Launch a BizWave workspace with tenant-scoped access and English &amp; Kiswahili AI guidance.
             </p>
             <div className="pt-2 flex flex-wrap gap-3.5">
               <Link

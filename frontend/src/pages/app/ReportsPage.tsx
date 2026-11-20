@@ -1,18 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { Calendar, Download, FileSpreadsheet, Play } from 'lucide-react';
 import { apiRequest, downloadCsvReport } from '../../services/api';
+import { useAuth } from '../../stores/authStore';
 
 const REPORT_TYPES = [
-  { code: 'sales_summary', name: 'Daily Sales & Gross Profit Summary', desc: 'Date, branch, order volume, net revenue, COGS & gross margin.' },
+  { code: 'sales_summary', name: 'Daily Sales Summary', desc: 'Date, branch, sales records and recorded revenue.' },
   { code: 'expense_ledger', name: 'Operating Expense Ledger', desc: 'Vendor, expense category, payment method, and reconciliation status.' },
   { code: 'inventory_valuation', name: 'Inventory Stock Valuation & Alerts', desc: 'Available units, reorder thresholds, and stock cost value per branch.' },
   { code: 'customer_insights', name: 'Customer LTV & Consent Directory', desc: 'Repeat orders, lifetime KES spend, inactivity days & consent status.' },
-  { code: 'branch_comparison', name: 'Multi-Branch Performance Comparison', desc: 'Consolidated revenue, gross profit, expenses, and net contribution.' },
+  { code: 'branch_comparison', name: 'Multi-Branch Performance Comparison', desc: 'Compare recorded revenue across your branches.' },
   { code: 'cashflow_statement', name: 'Cash-Flow & M-Pesa Reconciliation Statement', desc: 'Daily inflows, outflows, and recorded vs reconciled status.' },
 ];
 
 export const ReportsPage: React.FC = () => {
-  const [selectedType, setSelectedType] = useState('sales_summary');
+  const { hasPermission } = useAuth();
+  const permissionFor: Record<string, string> = { sales_summary: 'sales:read', expense_ledger: 'finance:read', inventory_valuation: 'inventory:read', customer_insights: 'customers:read', branch_comparison: 'sales:read', cashflow_statement: 'finance:read' };
+  const visibleReports = REPORT_TYPES.filter((report) => hasPermission(permissionFor[report.code]) && (report.code !== 'inventory_valuation' || hasPermission('finance:read')) && (report.code !== 'customer_insights' || hasPermission('sales:read')));
+  const [selectedType, setSelectedType] = useState(visibleReports[0]?.code || 'sales_summary');
   const [days, setDays] = useState(30);
   const [previewRows, setPreviewRows] = useState<any[]>([]);
   const [history, setHistory] = useState<any>({ executions: [], schedules: [] });
@@ -42,6 +46,9 @@ export const ReportsPage: React.FC = () => {
       setPreviewRows(res.rows || []);
       setMsg(`Generated ${res.rowCount} rows from PostgreSQL.`);
       loadHistory();
+    } catch (e: any) {
+      setMsg(e.message || 'Could not generate the report.');
+      setPreviewRows([]);
     } finally {
       setBusy(false);
     }
@@ -50,17 +57,16 @@ export const ReportsPage: React.FC = () => {
   const handleSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!schedEmail) return;
-    await apiRequest('/reports/schedule', {
-      method: 'POST',
-      body: {
-        name: `Weekly ${selectedType.replace(/_/g, ' ')}`,
-        reportType: selectedType,
-        recipients: [schedEmail],
-      },
-    });
-    setSchedEmail('');
-    setMsg('Weekly scheduled report saved (runs every Monday at 07:00 EAT).');
-    loadHistory();
+    setMsg('');
+    try {
+      const res = await apiRequest('/reports/schedule', {
+        method: 'POST',
+        body: { name: `Weekly ${selectedType.replace(/_/g, ' ')}`, reportType: selectedType, recipients: [schedEmail] },
+      });
+      setSchedEmail('');
+      setMsg(res.message || 'Saved as a draft; automatic email delivery is not configured.');
+      loadHistory();
+    } catch (e: any) { setMsg(e.message || 'Could not save this draft.'); }
   };
 
   const cols = previewRows.length > 0 ? Object.keys(previewRows[0]) : [];
@@ -78,7 +84,7 @@ export const ReportsPage: React.FC = () => {
       {msg && <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs font-medium">{msg}</div>}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {REPORT_TYPES.map((rt) => (
+        {visibleReports.map((rt) => (
           <button
             key={rt.code}
             type="button"
@@ -97,7 +103,7 @@ export const ReportsPage: React.FC = () => {
       </div>
 
       <div className="bg-white border border-slate-200 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="px-3 py-2 text-xs font-semibold border border-slate-200 rounded-lg bg-white">
             <option value={7}>Last 7 Days</option>
             <option value={30}>Last 30 Days</option>
@@ -109,26 +115,26 @@ export const ReportsPage: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={() => downloadCsvReport(selectedType, days)}
+            onClick={async () => { try { await downloadCsvReport(selectedType, days); } catch (e: any) { setMsg(e.message || 'Could not export this report.'); } }}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-teal-600 text-teal-700 text-xs font-semibold hover:bg-teal-50"
           >
             <Download className="w-3.5 h-3.5" /> Export CSV
           </button>
         </div>
 
-        <form onSubmit={handleSchedule} className="flex items-center gap-2">
+        {hasPermission('reports:manage') && <form onSubmit={handleSchedule} className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           <input
             type="email"
             required
-            placeholder="Schedule weekly to email..."
+            placeholder="Email for schedule draft..."
             value={schedEmail}
             onChange={(e) => setSchedEmail(e.target.value)}
-            className="px-3 py-2 text-xs border border-slate-200 rounded-lg w-52"
+            className="min-w-0 max-w-full px-3 py-2 text-xs border border-slate-200 rounded-lg w-52"
           />
           <button type="submit" className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs font-semibold text-navy-950">
-            <Calendar className="w-3.5 h-3.5" /> Schedule
+            <Calendar className="w-3.5 h-3.5" /> Save draft
           </button>
-        </form>
+        </form>}
       </div>
 
       {previewRows.length > 0 && (
@@ -153,12 +159,12 @@ export const ReportsPage: React.FC = () => {
 
       {history.schedules?.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-2xl p-5">
-          <h3 className="text-sm font-bold text-navy-950 mb-3">Scheduled Recurring Reports</h3>
+          <h3 className="text-sm font-bold text-navy-950 mb-3">Saved report schedules</h3><p className="text-xs text-slate-500 mb-3">Automatic email delivery is not configured. These schedules are drafts.</p>
           <div className="space-y-2 text-xs">
             {history.schedules.map((s: any) => (
-              <div key={s.id} className="p-3 rounded-xl bg-slate-50 flex items-center justify-between">
-                <span className="font-semibold text-navy-950 capitalize">{s.report_name}</span>
-                <span className="text-slate-500">Cron: <code>{s.cron_expression}</code> · Recipients: {(s.recipients || []).join(', ')}</span>
+              <div key={s.id} className="p-3 rounded-xl bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+                <span className="font-semibold text-navy-950 capitalize break-words">{s.report_name}</span>
+                <span className="text-slate-500 break-all">Cron: <code>{s.cron_expression}</code> · Recipients: {(s.recipients || []).join(', ')}</span>
               </div>
             ))}
           </div>

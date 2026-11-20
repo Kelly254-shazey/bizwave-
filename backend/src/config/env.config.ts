@@ -7,6 +7,9 @@ export const envConfig = {
   port: parseInt(process.env.PORT || '4000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
   enableSwagger: process.env.ENABLE_SWAGGER === 'true',
+  // Temporarily open the portal's core tools across plans; role permissions stay enforced.
+  // Set to true when plan-based restrictions should resume.
+  featureGatingEnabled: process.env.PORTAL_FEATURE_GATING_ENABLED === 'true',
   databaseUrl:
     process.env.DATABASE_URL ||
     'postgresql://bizwave_app:bizwave_app_dev_pw@127.0.0.1:5432/bizwave',
@@ -38,6 +41,16 @@ export const envConfig = {
   llmTimeoutMs: parseInt(process.env.LLM_TIMEOUT_MS || '25000', 10),
 };
 
+export function isSecureProductionOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    return url.protocol === 'https:' && !!url.hostname && !url.username && !url.password &&
+      !url.hostname.includes('*') && url.pathname === '/' && !url.search && !url.hash && url.origin === origin;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Fail-closed security guard for production deployments.
  * Refuses to boot if development fallback secrets, weak keys, or unsafe CORS are active.
@@ -66,8 +79,8 @@ export function assertProductionConfig(): void {
   if (!process.env.DATABASE_URL || envConfig.databaseUrl.includes('bizwave_app_dev_pw')) {
     errors.push('DATABASE_URL must use a dedicated production password (not bizwave_app_dev_pw).');
   }
-  if (envConfig.allowedOrigins.length === 0 || envConfig.allowedOrigins.includes('*')) {
-    errors.push('CORS_ORIGINS must list explicit HTTPS production domain(s) (never wildcard *).');
+  if (!process.env.CORS_ORIGINS || envConfig.allowedOrigins.length === 0 || !envConfig.allowedOrigins.every(isSecureProductionOrigin)) {
+    errors.push('CORS_ORIGINS must list explicit HTTPS production origins (no HTTP, wildcards, credentials, paths or queries).');
   }
 
   if (errors.length > 0) {

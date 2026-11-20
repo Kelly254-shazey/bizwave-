@@ -1,82 +1,75 @@
-# BizWave — Enterprise Multi-Tenant SME Intelligence & Customer Communications SaaS
+# BizWave — SME intelligence and business network
 
-> **Your business. Understood. Your next move. Clear.**
-> *Built for Nairobi SMEs, designed to scale across Kenya and East Africa (`KES` · `Africa/Nairobi` · English & Kiswahili).*
+BizWave is a Kenya-focused, multi-tenant business workspace: a public website and a separate authenticated portal for analytics, forecasting, a bilingual assistant, reporting, team management and an opt-in business directory. The interface supports English and Kiswahili. Business data and access depend on the signed-in tenant, role and assigned branches.
 
-BizWave unifies **operational business intelligence (`BizWave Analytics`)**, **forecasting & anomaly detection (`BizWave Predict`)**, a **grounded bilingual assistant (`BizWave AI`)**, **Kenya DPA 2019 consent-first customer communications (`BizWave Connect`)**, and **free Marketplace & Community Literacy (`BizWave Business Coach`, `BizWave Buyer Guide`, `BizWave Community Learn`, with MsingiAI Sauti Kenyan speech integration)** inside one secure, multi-tenant, Apple-minimal SaaS platform.
+## Release status and important limits
 
----
+This is a **source release candidate**, not proof of a production deployment. Review the [deployment guide](documentation/operations/production-vps-deployment-guide.md), [security notes](documentation/security/security-and-dpa-2019.md) and [QA report](documentation/qa/qa-test-report.md) before using real data. Docker, live provider connections, hosted deployment, load testing and independent security/legal review have not been verified in the local sandbox.
 
-## Platform Modules & Architecture
+- **Temporary plan preview:** `PORTAL_FEATURE_GATING_ENABLED=false` makes `predict_basic`, `predict_advanced`, `ai_assistant` and `connect_core` available across plans. It does **not** grant permissions, remove tenant/branch restrictions, alter subscriptions or necessarily remove other quotas. Set `true` to restore plan-feature checks.
+- **Billing and messaging:** online plan changes, add-on purchases and payment collection are not connected. Billing POSTs return HTTP 503 without changing subscription data. Customer campaign checks record consent but **no outbound SMS, WhatsApp, voice or USSD message is sent**, even when provider credentials are stored. M-Pesa records are data for analysis, not a live payment connection.
+- **Website analysis:** analysis is a no-save preview. A separate explicit import can persist eligible products, only with the required permissions. Only explicit positive KES prices are accepted; stock and costs are not inferred, existing unrelated SKUs are never overwritten.
+- **Network:** a business appears only after explicitly publishing a profile to other signed-in organizations. Counts describe matching published profiles, not market demand; contact uses a published email or website, not in-app messaging.
+- **Forecasts and AI:** results depend on permissions and sufficient recorded data; forecasts are estimates, not guarantees. Cash-flow requires a user-entered current KES balance and reconciled transaction history. An optional voice-provider adapter has not been verified; browser speech depends on browser/device support. Automated password-reset emails and report delivery are not configured.
+- The old public Learn/Buyer Guide module and demo accounts are not part of the current application. Historical test suites are quarantined under `tests/legacy/`.
 
-| Layer | Technology | Path |
-|---|---|---|
-| **Public Website & Adaptive Portal** | React 18, TypeScript (strict), Vite, Tailwind CSS, TanStack Query, Recharts, React Router, Lucide | `frontend/` |
-| **Core REST API & Security Engine** | Node.js 20 LTS, TypeScript, NestJS (`/api/v1`), OpenAPI/Swagger (`/api/docs`), Zod, Argon2id, TOTP MFA, AES-256-GCM, BullMQ, Pino | `backend/` |
-| **Predictive Intelligence Engine** | Python 3.13, FastAPI, pandas, NumPy, scikit-learn, statsmodels | `intelligence/` |
-| **Multi-Tenant Relational Database** | PostgreSQL 17 (`FORCE ROW LEVEL SECURITY`, composite tenant FKs, `NUMERIC(14,2)`, immutable ledgers, SHA-256 audit hash chain, `mv_tenant_daily_analytics`) | `database/` |
-| **Infrastructure & CI/CD** | Docker Compose, Nginx reverse proxy, GitHub Actions CI, automated backup/restore scripts | `infrastructure/`, `.github/workflows/ci.yml` |
-| **Enterprise Documentation** | ERD, Data Dictionary, DB Business Logic, API Spec & `openapi.json`, RBAC Matrix, Security & Kenya DPA 2019, Integrations, Deployment/Backup/Ops Runbooks, SME User Guide | `documentation/` |
+## Repository
 
----
+| Path | Purpose |
+|---|---|
+| `frontend/` | React/Vite public site and responsive portal |
+| `backend/` | NestJS API, authentication, RBAC and tenant scoping |
+| `intelligence/` | FastAPI analytics, forecast and website-analysis service |
+| `database/migrations/001_*.sql`–`008_*.sql` | Versioned PostgreSQL schema and access policies |
+| `scripts/apply-migrations.sh` | Ordered, transactional, resumable migration runner |
+| `documentation/` | Operational, security, integration, API, user and QA guides |
+| `tests/` | Current checks, migration tests, mock analyzer and quarantined legacy suites |
 
-## Seeded Nairobi SME Pilot Accounts
+## Local development
 
-All seeded pilot accounts use password **`BizWave2026!`** (hashed with Argon2id):
+On a disposable Linux sandbox with PostgreSQL, Redis, Node.js and Python installed, review and run `./scripts/bootstrap-sandbox.sh`. It **does not reset an existing database**; it provisions roles, applies pending migrations and builds the apps. Back up and review any existing `bizwave` database first. Then start in separate terminals:
 
-| Email | Organization | Role & Scope | Plan |
-|---|---|---|---|
-| `amina@savannahmart.co.ke` | Savannah Urban Mart Ltd *(+ Auditor on Kijiji Flame)* | **Business Owner** (2 branches: Westlands & Kilimani) | Intelligence |
-| `david@savannahmart.co.ke` | Savannah Urban Mart Ltd | **Finance Officer** (Finance, M-Pesa, Reports, Audit) | Intelligence |
-| `grace@savannahmart.co.ke` | Savannah Urban Mart Ltd | **Inventory Manager** (Inventory, Predict, Imports) | Intelligence |
-| `kelvin@savannahmart.co.ke` | Savannah Urban Mart Ltd | **Branch Manager** (*Strictly scoped to Kilimani Express*) | Intelligence |
-| `faith@savannahmart.co.ke` | Savannah Urban Mart Ltd | **Customer Service Agent** (Customers, Sales, Connect) | Intelligence |
-| `brian@kijijiflame.co.ke` | Kijiji Flame Bistro Ltd | **Business Owner** (1 branch: Lavington; Connect gated by plan) | Growth |
-
----
-
-## Quick Start & Automated Verification
-
-### Run All 4 Verification Suites (DB RLS + Python Pytest + NestJS E2E Security + Frontend Strict Build)
 ```bash
-./tests/run-all-tests.sh
+(cd intelligence && PYTHONPATH=. uvicorn app.main:app --host 127.0.0.1 --port 8001)
+(cd backend && HOST=0.0.0.0 PORT=4000 node dist/main.js)
+(cd frontend && npm run dev -- --host 0.0.0.0 --port 5173)
 ```
 
-### Repeatable Sandbox Bootstrap
-```bash
-./scripts/bootstrap-sandbox.sh
-```
+Vite proxies `/api` to the local API; the browser uses relative URLs. Register a new test account; there are no seeded pilot credentials. Local-development defaults are not production credentials. For a different environment, use `backend/.env.example` as a reference and pass variables to the processes.
 
-### Docker Compose Deployment
+### Local Docker development (not the production stack)
+
+Docker was unavailable during local verification. The following describes the intended development setup; validate it in your own disposable environment. `docker-compose.yml` exposes development ports and is not hardened for public deployment.
+
 ```bash
-cp .env.example .env
-# Populate secrets in .env (see documentation/operations/deployment-guide.md)
+cp .env.example .env                 # development only; set the local postgres password
+# Start the database first; wait until healthy.
+docker compose up -d postgres redis
+docker compose exec -T postgres psql -U postgres -d bizwave -v ON_ERROR_STOP=1 < infrastructure/postgres/init-roles.sql
+./scripts/apply-migrations.sh docker compose exec -T postgres psql -U postgres -d bizwave
+docker compose exec -T postgres psql -U postgres -d bizwave -v ON_ERROR_STOP=1 < infrastructure/postgres/grant-runtime-access.sql
 docker compose up -d --build
 ```
 
----
+The example uses the known `bizwave_app_dev_pw` role password and is strictly for local development. The production VPS script generates separate secrets; see the production deployment guide.
 
-## Complete Section 22 Deliverables Index
+## Verification
 
-1. **Frontend Source Code** — `frontend/`
-2. **Backend API Source Code** — `backend/`
-3. **Python Intelligence Service** — `intelligence/`
-4. **Normalized PostgreSQL Schema (13 Groups)** — `database/migrations/001`–`006`
-5. **Migrations & Rollback Strategy** — `database/migrations/` & `database/migrations/rollback/rollback_all.sql`
-6. **Reference & Kenyan SME Seeds** — `database/seeds/001_reference_data_and_plans.sql`, `002_kenyan_sme_demo_tenants.sql`
-7. **Entity Relationship Diagram (ERD)** — `documentation/architecture/erd.md`
-8. **Data Dictionary** — `documentation/database/data-dictionary.md`
-9. **Database Business Logic Documentation** — `documentation/database/database-business-logic.md`
-10. **API Specification & OpenAPI JSON** — `documentation/api/api-specification.md`, `documentation/api/openapi.json` (Live Swagger: `/api/docs`)
-11. **RBAC & Subscription Entitlement Matrix** — `documentation/security/rbac-matrix.md`
-12. **Security Architecture & Kenya DPA 2019 Compliance** — `documentation/security/security-and-dpa-2019.md`
-13. **External Provider Integrations Guide** — `documentation/integrations/integrations-and-providers.md`
-14. **Automated Test Suites** — `database/tests/test_database_integrity.sql`, `intelligence/tests/test_intelligence.py`, `backend/test/api.integration.spec.ts`, `tests/run-all-tests.sh`
-15. **Dockerfiles & Docker Compose** — `docker-compose.yml`, `{frontend,backend,intelligence}/Dockerfile`, `infrastructure/nginx/nginx.conf`
-16. **CI/CD Pipeline** — `.github/workflows/ci.yml`
-17. **Environment Templates** — `.env.example`, `{backend,intelligence,frontend}/.env.example`
-18. **Deployment Guide** — `documentation/operations/deployment-guide.md`
-19. **Backup & Recovery Runbook** — `documentation/operations/backup-and-recovery-runbook.md`, `infrastructure/scripts/{backup,restore}-postgres.sh`
-20. **Operations Runbook** — `documentation/operations/operations-runbook.md`
-21. **SME User Guide (EN/SW)** — `documentation/user-guide/sme-user-guide.md`
-22. **QA & Test Automation Report (12 Suites / 95 Checks)** — `documentation/qa/qa-test-report.md`
+From the repository root, after installing dependencies:
+
+```bash
+(cd backend && npm run test:unit && npm run build)
+(cd frontend && npm run test:unit && npm run build)
+(cd intelligence && PYTHONPATH=. pytest -q)
+(cd backend && npx tsx ../tests/system/evolvability.audit.spec.ts)
+./tests/migration-regression.sh
+./tests/restore-safety.spec.sh     # mocked commands, not a real restore drill
+```
+
+`tests/run-all-tests.sh` also runs database integrity and API integration checks. **They require an explicitly selected disposable local database and API**; integration creates tenants, products and immutable audit entries. Never point it at real or shared data. Set `BIZWAVE_ALLOW_TEST_FIXTURES=1`, `BIZWAVE_TEST_DATABASE_URL`, `BIZWAVE_TEST_OWNER_DATABASE_URL`, and `BIZWAVE_API_URL`; start `tests/mock-intelligence.py` and the API against that same test database. The test runner refuses non-local/non-test database names. See the [QA report](documentation/qa/qa-test-report.md) and `.github/workflows/ci.yml` for an end-to-end example.
+
+`tests/verify-production.sh` is a local built-code/clean-database readiness check, **not** a production deployment certification. Set `BIZWAVE_VERIFY_DB` to a clean test database; intentional existing tenant fixtures should not be deleted to make it pass.
+
+## Documentation
+
+[User guide](documentation/user-guide/sme-user-guide.md) · [API](documentation/api/api-specification.md) · [roles & feature access](documentation/security/rbac-matrix.md) · [integrations](documentation/integrations/integrations-and-providers.md) · [deployment](documentation/operations/production-vps-deployment-guide.md) · [backup & recovery](documentation/operations/backup-and-recovery-runbook.md) · [QA](documentation/qa/qa-test-report.md)

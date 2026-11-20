@@ -125,7 +125,7 @@ async function bootstrap() {
     const swaggerConfig = new DocumentBuilder()
       .setTitle('BizWave AI-Powered SME Intelligence API')
       .setDescription(
-        'Multi-tenant enterprise REST API powering the 4 BizWave pillars: BizWave Analytics, BizWave Predict, BizWave AI (English & Kiswahili), and BizWave Connect (Voice, SMS, WhatsApp & USSD).',
+        'BizWave Analytics, Predict, AI and opt-in business discovery. Customer communications can be prepared, but outbound delivery and online billing are not connected in this release.',
       )
       .setVersion('2.0.0')
       .addBearerAuth()

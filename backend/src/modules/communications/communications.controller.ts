@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Headers, Param, Post, Req, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Headers, Param, Post, Req, UnauthorizedException } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { DatabaseService } from '../../database/database.service';
 import { encryptSecret, verifyHmacSignature } from '../../database/crypto.util';
@@ -33,15 +33,15 @@ async function dispatchViaProviderAdapter(params: {
     return {
       deliveryStatus: 'provider_unconfigured',
       providerMessageId: null,
-      failureReason: `External delivery not attempted: configure ${params.providerCode} credentials (${params.requiredEnvKeys.join(', ')}) in BizWave Connect settings to transmit live ${params.channelType.toUpperCase()} messages.`,
+      failureReason: `External delivery was not attempted. Outbound ${params.channelType.toUpperCase()} provider integration is not available in this release.`,
     };
   }
-  // When real credentials are stored (or env vars provided), the adapter hands off to the official provider HTTP API.
-  // In sandbox without outbound paid SMS credits, fail honestly unless a live provider endpoint confirms acceptance.
+  // Credentials can be stored, but there is no outbound carrier adapter in
+  // this release. Never imply that a provider was contacted or accepted it.
   return {
-    deliveryStatus: 'failed',
+    deliveryStatus: 'provider_unconfigured',
     providerMessageId: null,
-    failureReason: `Configured ${params.providerCode} credentials require verified production sender registration before carrier dispatch.`,
+    failureReason: `External delivery was not attempted. Stored ${params.providerCode} credentials do not enable outbound delivery in this release.`,
   };
 }
 
@@ -51,10 +51,18 @@ async function dispatchViaProviderAdapter(params: {
 export class CommunicationsController {
   constructor(private readonly db: DatabaseService) {}
 
+  // The existing campaign/session records are tenant-wide and do not reliably
+  // identify a branch. Fail closed for branch-restricted roles rather than
+  // disclosing contacts, message bodies, or aggregates from other branches.
+  private requireWholeBusiness(ctx: TenantAuthContext) {
+    if (ctx.allowedBranchIds !== null) throw new ForbiddenException('Customer communications require whole-business access.');
+  }
+
   @Get('overview')
   @RequireFeature('connect_core')
   @RequirePermissions('connect:read')
   async overview(@TenantCtx() ctx: TenantAuthContext) {
+    this.requireWholeBusiness(ctx);
     return this.db.withTenant(ctx.tenantId, async (client) => {
       const [channels, providers, templates, campaigns, messages, voice, ussd] = await Promise.all([
         client.query(
@@ -113,6 +121,7 @@ export class CommunicationsController {
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: any,
   ) {
+    this.requireWholeBusiness(ctx);
     const result = await this.db.withTenant(ctx.tenantId, async (client) => {
       const prov = await client.query(`SELECT * FROM communication_providers WHERE code = $1`, [body.providerCode]);
       if (prov.rowCount === 0) throw new BadRequestException('Unknown communication provider');
@@ -177,12 +186,13 @@ export class CommunicationsController {
     @TenantCtx() ctx: TenantAuthContext,
     @CurrentUser() user: AuthenticatedUser,
   ) {
+    this.requireWholeBusiness(ctx);
     if (!body.name || !body.bodyTemplate) throw new BadRequestException('name and bodyTemplate required');
     return this.db.withTenant(ctx.tenantId, async (client) => {
       const vars = [...body.bodyTemplate.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]);
       const ins = await client.query(
-        `INSERT INTO communication_templates (tenant_id, name, channel_type, language, purpose, body_template, variables, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8) RETURNING *`,
+        `INSERT INTO communication_templates (tenant_id, name, channel_type, language, purpose, body_template, variables, created_by, approval_status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,'draft') RETURNING *`,
         [ctx.tenantId, body.name, body.channelType, body.language || 'en', body.purpose || 'marketing', body.bodyTemplate, JSON.stringify(vars), user.userId],
       );
       return { template: ins.rows[0] };
@@ -193,6 +203,7 @@ export class CommunicationsController {
   @RequireFeature('connect_core')
   @RequirePermissions('connect:read')
   async listCampaigns(@TenantCtx() ctx: TenantAuthContext) {
+    this.requireWholeBusiness(ctx);
     return this.db.withTenant(ctx.tenantId, async (client) => {
       const res = await client.query(`SELECT * FROM communication_campaigns WHERE tenant_id = $1 ORDER BY created_at DESC`, [ctx.tenantId]);
       return { campaigns: res.rows };
@@ -216,6 +227,7 @@ export class CommunicationsController {
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: any,
   ) {
+    this.requireWholeBusiness(ctx);
     if (!body.name) throw new BadRequestException('Campaign name is required');
     const purpose = body.purpose || 'marketing';
 
@@ -269,7 +281,7 @@ export class CommunicationsController {
         const hasConsent =
           purpose === 'transactional'
             ? cust.explicit_consent !== 'revoked'
-            : cust.explicit_consent === 'granted' || (cust.explicit_consent === null && cust.marketing_opt_in === true);
+            : cust.explicit_consent === 'granted';
 
         const rendered = bodyText.replace(/\{\{name\}\}/g, cust.full_name);
 
@@ -312,20 +324,20 @@ export class CommunicationsController {
         );
       }
 
-      const finalStatus = hasCreds ? 'completed' : 'blocked_provider_unconfigured';
+      // Outbound delivery is not implemented, even when credentials are saved.
+      // Keep the campaign blocked and never claim that it was sent/completed.
       const upd = await client.query(
-        `UPDATE communication_campaigns SET status = $3, consented_count = $4, skipped_no_consent_count = $5, sent_at = NOW()
+        `UPDATE communication_campaigns SET status = 'blocked_provider_unconfigured', consented_count = $3, skipped_no_consent_count = $4, sent_at = NULL
          WHERE tenant_id = $1 AND id = $2 RETURNING *`,
-        [ctx.tenantId, camp.id, finalStatus, consentedCount, skippedNoConsent],
+        [ctx.tenantId, camp.id, consentedCount, skippedNoConsent],
       );
 
       return {
         campaign: upd.rows[0],
         providerConfigured: hasCreds,
         requiredCredentials: hasCreds ? [] : requiredKeys,
-        honestNotice: hasCreds
-          ? 'Campaign processed via configured provider adapter.'
-          : `No messages were falsely marked delivered. Configure ${requiredKeys.join(', ')} to activate live carrier transmission.`,
+        deliveryEnabled: false,
+        honestNotice: 'No messages were sent. Outbound provider delivery is not connected in this release, even if credentials are saved.',
       };
     });
 
@@ -361,6 +373,7 @@ export class CommunicationsController {
     },
     @TenantCtx() ctx: TenantAuthContext,
   ) {
+    this.requireWholeBusiness(ctx);
     if (!body.customerId || !body.message) {
       throw new BadRequestException('customerId and message are required');
     }
@@ -377,7 +390,7 @@ export class CommunicationsController {
       const allowed =
         body.purpose === 'transactional'
           ? cust.consent_status !== 'revoked'
-          : cust.consent_status === 'granted' || (cust.consent_status === null && cust.marketing_opt_in === true);
+          : cust.consent_status === 'granted';
 
       if (!allowed) {
         const ins = await client.query(
@@ -420,6 +433,7 @@ export class CommunicationsController {
   @RequireFeature('connect_core')
   @RequirePermissions('connect:read')
   async deliveryReports(@TenantCtx() ctx: TenantAuthContext) {
+    this.requireWholeBusiness(ctx);
     return this.db.withTenant(ctx.tenantId, async (client) => {
       const res = await client.query(
         `SELECT channel_type, delivery_status, COUNT(*)::int AS count

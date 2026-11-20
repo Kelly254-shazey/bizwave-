@@ -1,33 +1,48 @@
-import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   AlertCircle,
   CheckCircle2,
+  Download,
   FileUp,
+  Globe,
   Package,
   Receipt,
   RefreshCw,
   RotateCcw,
+  Sparkles,
   Wallet,
 } from 'lucide-react';
 import { apiRequest } from '../../services/api';
 import { useAuth } from '../../stores/authStore';
 import { formatKes } from '../../i18n/translations';
+import { PORTAL_CHART_COLORS } from '../../utils/chart-colors';
 
 const SALES_CSV_TEMPLATE = `receipt_no,date,product,quantity,total,payment_method\n`;
 
 export const AnalyticsPage: React.FC = () => {
-  const { branches, selectedBranchId, hasPermission } = useAuth();
+  const { branches, selectedBranchId, hasPermission, language, activeOrg } = useAuth();
+  const tr = (en: string, kiswahili: string) => language === 'sw' ? kiswahili : en;
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = (searchParams.get('tab') as any) || 'sales';
-  const [tab, setTab] = useState<'sales' | 'inventory' | 'finance' | 'imports'>(initialTab);
+  const allowedTabs = [hasPermission('sales:read') && 'sales', hasPermission('inventory:read') && 'inventory', hasPermission('finance:read') && 'finance', hasPermission('imports:read') && 'imports', hasPermission('analytics:read') && 'website'].filter(Boolean) as string[];
+  const requestedTab = searchParams.get('tab');
+  const initialTab = allowedTabs.includes(requestedTab || '') ? requestedTab as any : (allowedTabs[0] as any || 'sales');
+  const [tab, setTab] = useState<'sales' | 'inventory' | 'finance' | 'imports' | 'website'>(initialTab);
 
   const [sales, setSales] = useState<any[]>([]);
   const [invData, setInvData] = useState<any>({ inventory: [], alerts: [], recentMovements: [] });
   const [finData, setFinData] = useState<any>({ expenses: [], categories: [], cashTransactions: [], reconciliationSummary: [], payables: [] });
   const [imports, setImports] = useState<any[]>([]);
+  const [websiteUrl, setWebsiteUrl] = useState('');
+  const [websiteBusy, setWebsiteBusy] = useState(false);
+  const [websiteResult, setWebsiteResult] = useState<any | null>(null);
+  const [websiteSources, setWebsiteSources] = useState<any[]>([]);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [dataLoading, setDataLoading] = useState(true);
+  const loadRef = useRef(0);
 
   // Stock adjustment state
   const [adjForm, setAdjForm] = useState({ branchId: '', productId: '', adjustmentQuantity: 10, reasonCode: 'recount', notes: '' });
@@ -39,8 +54,16 @@ export const AnalyticsPage: React.FC = () => {
   const [importErrors, setImportErrors] = useState<any[]>([]);
   const [importMapping, setImportMapping] = useState<Record<string, string>>({});
   const [busyImport, setBusyImport] = useState(false);
+  const uploadableDatasets = [
+    { code: 'sales', permission: 'sales:write', label: tr('Sales records', 'Rekodi za mauzo') },
+    { code: 'expenses', permission: 'finance:write', label: tr('Expenses', 'Matumizi') },
+    { code: 'products', permission: 'inventory:write', label: tr('Products & opening stock', 'Bidhaa na stoo ya mwanzo') },
+    { code: 'customers', permission: 'customers:write', label: tr('Customers', 'Wateja') },
+  ].filter((dataset) => hasPermission('imports:manage') && hasPermission(dataset.permission));
+  useEffect(() => { if (uploadableDatasets.length && !uploadableDatasets.some((dataset) => dataset.code === datasetType)) setDatasetType(uploadableDatasets[0].code); }, [activeOrg?.id]);
+  useEffect(() => { setActiveImport(null); setImportErrors([]); setWebsiteResult(null); setMsg(''); setErr(''); }, [activeOrg?.id, selectedBranchId]);
 
-  const switchTab = (next: 'sales' | 'inventory' | 'finance' | 'imports') => {
+  const switchTab = (next: 'sales' | 'inventory' | 'finance' | 'imports' | 'website') => {
     setTab(next);
     setSearchParams({ tab: next });
     setMsg('');
@@ -49,42 +72,79 @@ export const AnalyticsPage: React.FC = () => {
 
   useEffect(() => {
     const qTab = searchParams.get('tab');
-    if ((qTab === 'sales' || qTab === 'inventory' || qTab === 'finance' || qTab === 'imports') && qTab !== tab) {
-      setTab(qTab);
-    }
+    if (qTab && allowedTabs.includes(qTab) && qTab !== tab) setTab(qTab as typeof tab);
+    else if (!allowedTabs.includes(tab) && allowedTabs.length) setTab(allowedTabs[0] as typeof tab);
   }, [searchParams]);
 
   const loadData = async () => {
-    setErr('');
+    const id = ++loadRef.current;
+    setLoadError(''); setDataLoading(true);
     try {
       if (tab === 'sales' && hasPermission('sales:read')) {
         const res = await apiRequest(`/sales?branchId=${encodeURIComponent(selectedBranchId)}&limit=60`);
-        setSales(res.sales || []);
+        if (id === loadRef.current) setSales(res.sales || []);
       } else if (tab === 'inventory' && hasPermission('inventory:read')) {
         const res = await apiRequest(`/inventory?branchId=${encodeURIComponent(selectedBranchId)}`);
-        setInvData(res);
+        if (id === loadRef.current) setInvData(res);
       } else if (tab === 'finance' && hasPermission('finance:read')) {
         const res = await apiRequest(`/finance/overview?branchId=${encodeURIComponent(selectedBranchId)}`);
-        setFinData(res);
+        if (id === loadRef.current) setFinData(res);
       } else if (tab === 'imports' && hasPermission('imports:read')) {
         const res = await apiRequest('/imports');
-        setImports(res.imports || []);
+        if (id === loadRef.current) setImports(res.imports || []);
+      } else if (tab === 'website' && hasPermission('analytics:read')) {
+        const res = await apiRequest(`/analytics/website-sources?branchId=${encodeURIComponent(selectedBranchId)}`);
+        if (id === loadRef.current) setWebsiteSources(res.sources || []);
       }
     } catch (e: any) {
+      if (id === loadRef.current) setLoadError(e.message || 'Could not load records.');
+    } finally {
+      if (id === loadRef.current) setDataLoading(false);
+    }
+  };
+
+  const handleAnalyzeWebsite = async (importCatalog = false, overrideUrl?: string) => {
+    const targetUrl = (overrideUrl ?? websiteUrl).trim();
+    if (!targetUrl) {
+      setErr('Enter your business website link (e.g. https://yourbusiness.co.ke).');
+      return;
+    }
+    setWebsiteBusy(true);
+    setErr('');
+    setMsg('');
+    try {
+      const res = await apiRequest('/analytics/website-analyze', {
+        method: 'POST',
+        body: { url: targetUrl, importCatalog, branchId: selectedBranchId },
+      });
+      setWebsiteResult(res);
+      setWebsiteUrl(res.url || targetUrl);
+      if (importCatalog) {
+        setMsg(tr(`${res.importedCount} added, ${res.updatedCount} updated, ${res.skippedCount} skipped. Skips include missing or non-KES prices and SKUs already in use. No costs or stock quantities were assumed.`,
+          `${res.importedCount} zimeongezwa, ${res.updatedCount} zimesasishwa, ${res.skippedCount} zimerukwa. Zilizorukwa zinaweza kukosa bei ya KES au kuwa na namba inayotumika. Gharama na kiasi cha stoo havikukadiriwa.`));
+      } else {
+        setMsg(tr(`Found ${res.pricing_stats?.total_items_found || 0} catalog item(s). This is a preview; no source or products were saved.`,
+          `Bidhaa ${res.pricing_stats?.total_items_found || 0} zimepatikana. Huu ni ukaguzi tu; hakuna chanzo au bidhaa zilizohifadhiwa.`));
+      }
+      loadData();
+    } catch (e: any) {
       setErr(e.message);
+    } finally {
+      setWebsiteBusy(false);
     }
   };
 
   useEffect(() => {
-    loadData();
-  }, [tab, selectedBranchId]);
+    if (allowedTabs.includes(tab)) loadData(); else setDataLoading(false);
+    return () => { loadRef.current++; };
+  }, [tab, selectedBranchId, activeOrg?.id]);
 
   const handleReverseSale = async (saleId: string) => {
     const reason = window.prompt('Enter audit reason for traceable sale reversal (original record is preserved):', 'Customer returned unopened item');
     if (!reason) return;
     try {
       await apiRequest(`/sales/${saleId}/return`, { method: 'POST', body: { reason } });
-      setMsg('Traceable sales return recorded and stock restored via immutable movement ledger.');
+      setMsg(tr('The sale was reversed and the original record was kept.', 'Mauzo yamegeuzwa na rekodi ya awali imehifadhiwa.'));
       loadData();
     } catch (e: any) {
       setErr(e.message);
@@ -104,7 +164,7 @@ export const AnalyticsPage: React.FC = () => {
           adjustmentQuantity: Number(adjForm.adjustmentQuantity),
         },
       });
-      setMsg('Auditable stock adjustment recorded in immutable inventory ledger.');
+      setMsg(tr('Stock adjustment saved.', 'Marekebisho ya stoo yamehifadhiwa.'));
       setAdjForm({ ...adjForm, notes: '' });
       loadData();
     } catch (e: any) {
@@ -126,7 +186,7 @@ export const AnalyticsPage: React.FC = () => {
           amount: Number(expForm.amount),
         },
       });
-      setMsg('Expense recorded successfully.');
+      setMsg(tr('Expense saved.', 'Matumizi yamehifadhiwa.'));
       setExpForm({ ...expForm, vendorName: '', description: '', amount: '' });
       loadData();
     } catch (e: any) {
@@ -137,7 +197,7 @@ export const AnalyticsPage: React.FC = () => {
   const handleReconcileTx = async (txId: string) => {
     try {
       await apiRequest(`/finance/reconcile/${txId}`, { method: 'POST' });
-      setMsg('M-Pesa / Cash transaction marked as reconciled.');
+      setMsg(tr('Transaction marked as reconciled.', 'Muamala umewekwa kuwa umelinganishwa.'));
       loadData();
     } catch (e: any) {
       setErr(e.message);
@@ -167,7 +227,7 @@ export const AnalyticsPage: React.FC = () => {
       setActiveImport(res.importJob);
       setImportMapping(res.importJob.column_mapping || {});
       setImportErrors([]);
-      setMsg(`File inspected & parsed (${res.importJob.total_records} rows). Review field mappings and click Validate.`);
+      setMsg(tr(`File read (${res.importJob.total_records} rows). Check the matching columns and select Validate.`, `Faili imesomwa (mistari ${res.importJob.total_records}). Kagua safu zinazolingana kisha chagua Hakiki.`));
       loadData();
     } catch (e: any) {
       setErr(e.message);
@@ -188,7 +248,7 @@ export const AnalyticsPage: React.FC = () => {
       setActiveImport(res.importJob);
       setImportErrors(res.errors || []);
       setMsg(
-        `Validation complete: ${res.summary.acceptedRecords} accepted, ${res.summary.rejectedRecords} rejected (${res.summary.duplicateRecords} duplicates). Quality score: ${res.summary.qualityScore}%.`,
+        tr(`Checked: ${res.summary.acceptedRecords} accepted, ${res.summary.rejectedRecords} rejected (${res.summary.duplicateRecords} duplicates).`, `Imekaguliwa: ${res.summary.acceptedRecords} zimekubaliwa, ${res.summary.rejectedRecords} zimekataliwa (${res.summary.duplicateRecords} ni nakala).`),
       );
       loadData();
     } catch (e: any) {
@@ -205,7 +265,7 @@ export const AnalyticsPage: React.FC = () => {
     try {
       const res = await apiRequest(`/imports/${activeImport.id}/commit`, { method: 'POST' });
       setActiveImport(res.importJob);
-      setMsg(`Committed ${res.insertedCount} validated records to PostgreSQL and refreshed analytics views!`);
+      setMsg(tr(`${res.insertedCount} checked records saved.`, `Rekodi ${res.insertedCount} zilizohakikiwa zimehifadhiwa.`));
       loadData();
     } catch (e: any) {
       setErr(e.message);
@@ -216,73 +276,60 @@ export const AnalyticsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="text-xs font-bold uppercase tracking-wider text-teal-600">Every Shilling &amp; Stock Unit in One Place</div>
-          <h1 className="mt-1 text-2xl font-extrabold text-navy-950">BizWave Analytics — Record &amp; Analyse</h1>
-          <p className="text-sm text-slate-500">
-            Record or upload sales, M-Pesa logs, stock, and expenses to see clear profit and performance — no customer payments pass through here.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-1.5 bg-white p-1 rounded-xl border border-slate-200">
-          {[
-            { id: 'sales', label: 'Sales Ledger', icon: Receipt, ok: hasPermission('sales:read') },
-            { id: 'inventory', label: 'Inventory & Stock', icon: Package, ok: hasPermission('inventory:read') },
-            { id: 'finance', label: 'Expenses & M-Pesa', icon: Wallet, ok: hasPermission('finance:read') },
-            { id: 'imports', label: 'CSV / Excel Imports', icon: FileUp, ok: hasPermission('imports:read') },
-          ]
-            .filter((t) => t.ok)
-            .map((t) => {
-              const Icon = t.icon;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => switchTab(t.id as any)}
-                  className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold transition-colors ${
-                    tab === t.id ? 'bg-navy-950 text-white' : 'text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  {t.label}
-                </button>
-              );
-            })}
-        </div>
+      <div>
+        <div className="p-eyebrow">{tr('YOUR BUSINESS RECORDS', 'REKODI ZA BIASHARA')}</div>
+        <h1 className="p-title">{tr('Analytics & records', 'Uchambuzi na rekodi')}</h1>
+        <p className="p-subtitle">{tr('Review your sales, expenses and stock, or bring in records from a file.', 'Kagua mauzo, matumizi na stoo, au pakia rekodi kutoka kwenye faili.')}</p>
       </div>
+      <div className="analytics-tabs" role="tablist" aria-label={tr('Record categories', 'Aina za rekodi')}>
+        {[
+          { id: 'sales', label: tr('Sales', 'Mauzo'), icon: Receipt, ok: hasPermission('sales:read') },
+          { id: 'inventory', label: tr('Inventory', 'Stoo'), icon: Package, ok: hasPermission('inventory:read') },
+          { id: 'finance', label: tr('Expenses', 'Matumizi'), icon: Wallet, ok: hasPermission('finance:read') },
+          { id: 'imports', label: tr('Imports', 'Faili'), icon: FileUp, ok: hasPermission('imports:read') },
+          { id: 'website', label: tr('Website sync', 'Unganisha tovuti'), icon: Globe, ok: hasPermission('analytics:read') },
+        ].filter((item) => item.ok).map((item) => {
+          const Icon = item.icon;
+          return <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => switchTab(item.id as typeof tab)} className={tab === item.id ? 'active' : ''}><Icon size={15} />{item.label}</button>;
+        })}
+      </div>
+      {!allowedTabs.length && <div className="p-panel p-6 p-empty">{tr('No record sections are available for your role.', 'Hakuna sehemu za rekodi zinazopatikana kwa jukumu lako.')}</div>}
+      {dataLoading && <div className="p-panel p-6 p-empty" role="status">{tr('Loading records…', 'Inapakia rekodi…')}</div>}
+      {loadError && <div className="p-alert p-alert-error" role="alert"><AlertCircle size={17} /><span className="flex-1">{tr('Could not load records.', 'Imeshindikana kupakia rekodi.')} {loadError}</span><button type="button" className="underline" onClick={loadData}>{tr('Try again', 'Jaribu tena')}</button></div>}
 
       {msg && <div className="p-3.5 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs font-medium">{msg}</div>}
       {err && <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">{err}</div>}
 
       {/* SALES TAB */}
-      {tab === 'sales' && (
+      {!dataLoading && !loadError && allowedTabs.includes(tab) && tab === 'sales' && (
         <div className="bg-white border border-slate-200 rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-bold text-navy-950">Recent Transactions ({sales.length})</h2>
-            <span className="text-xs text-slate-400">Historical sales cannot be deleted; use traceable reversals</span>
+            <h2 className="text-sm font-bold text-navy-950">{tr('Recent sales', 'Mauzo ya hivi karibuni')} ({sales.length})</h2>
+            <span className="text-xs text-slate-400">{tr('Historical sales cannot be deleted; use traceable reversals', 'Mauzo ya awali hayafutwi; tumia njia ya kurejesha mauzo')}</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-slate-100 text-slate-400 text-left">
-                  <th className="pb-2.5">Reference</th>
-                  <th className="pb-2.5">Date</th>
-                  <th className="pb-2.5">Branch</th>
-                  <th className="pb-2.5">Customer</th>
-                  <th className="pb-2.5">Payment</th>
-                  <th className="pb-2.5 text-right">Total (KES)</th>
-                  <th className="pb-2.5 text-right">Status</th>
-                  <th className="pb-2.5 text-right">Action</th>
+                  <th className="pb-2.5">{tr('Reference', 'Kumbukumbu')}</th>
+                  <th className="pb-2.5">{tr('Date', 'Tarehe')}</th>
+                  <th className="pb-2.5">{tr('Branch', 'Tawi')}</th>
+                  <th className="pb-2.5">{tr('Customer', 'Mteja')}</th>
+                  <th className="pb-2.5">{tr('Payment', 'Malipo')}</th>
+                  <th className="pb-2.5 text-right">{tr('Total (KES)', 'Jumla (KES)')}</th>
+                  <th className="pb-2.5 text-right">{tr('Status', 'Hali')}</th>
+                  <th className="pb-2.5 text-right">{tr('Action', 'Hatua')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
+                {!sales.length && <tr><td colSpan={8} className="py-8 text-center text-slate-400">{tr('No sales records yet.', 'Bado hakuna rekodi za mauzo.')} {hasPermission('imports:read') && <Link className="text-teal-600 font-semibold" to="/app/analytics?tab=imports">{tr('Import records', 'Pakia rekodi')} →</Link>}</td></tr>}
                 {sales.map((s) => (
                   <tr key={s.id} className="hover:bg-slate-50/70">
                     <td className="py-2.5 font-mono text-[11px] font-semibold text-navy-950">{s.transaction_ref}</td>
                     <td className="py-2.5 text-slate-600">{new Date(s.transaction_date).toLocaleDateString('en-KE')}</td>
                     <td className="py-2.5 text-slate-700">{s.branch_name}</td>
-                    <td className="py-2.5 text-slate-600">{s.customer_name || 'Walk-in'}</td>
-                    <td className="py-2.5 uppercase text-[10px] font-semibold text-slate-500">{s.payment_method || 'mpesa'}</td>
+                    <td className="py-2.5 text-slate-600">{s.customer_name || tr('Walk-in', 'Mteja wa dukani')}</td>
+                    <td className="py-2.5 uppercase text-[10px] font-semibold text-slate-500">{s.payment_method === 'multiple' ? tr('Multiple', 'Nyingi') : s.payment_method || tr('Not recorded', 'Haijawekwa')}</td>
                     <td className="py-2.5 text-right font-semibold text-navy-950">{formatKes(s.total_amount)}</td>
                     <td className="py-2.5 text-right">
                       <span
@@ -301,7 +348,7 @@ export const AnalyticsPage: React.FC = () => {
                           className="inline-flex items-center gap-1 text-[11px] text-slate-500 hover:text-rose-700"
                           title="Record traceable sales return"
                         >
-                          <RotateCcw className="w-3 h-3" /> Reverse
+                          <RotateCcw className="w-3 h-3" /> {tr('Reverse', 'Rejesha')}
                         </button>
                       )}
                     </td>
@@ -314,12 +361,12 @@ export const AnalyticsPage: React.FC = () => {
       )}
 
       {/* INVENTORY TAB */}
-      {tab === 'inventory' && (
+      {!dataLoading && !loadError && allowedTabs.includes(tab) && tab === 'inventory' && (
         <div className="space-y-5">
           {hasPermission('inventory:write') && invData.inventory.length > 0 && (
             <form onSubmit={handleAdjustStock} className="bg-white border border-slate-200 rounded-2xl p-5 grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
               <div className="md:col-span-2">
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product &amp; Branch</label>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">{tr('Product & Branch', 'Bidhaa na tawi')}</label>
                 <select
                   required
                   value={`${adjForm.branchId}|${adjForm.productId}`}
@@ -329,7 +376,7 @@ export const AnalyticsPage: React.FC = () => {
                   }}
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white"
                 >
-                  <option value="|">Select SKU to adjust...</option>
+                  <option value="|">{tr('Select SKU to adjust...', 'Chagua bidhaa ya kurekebisha...')}</option>
                   {invData.inventory.map((it: any) => (
                     <option key={`${it.branch_id}-${it.product_id}`} value={`${it.branch_id}|${it.product_id}`}>
                       {it.product_name} ({it.branch_name} — {it.available_quantity} avail)
@@ -338,7 +385,7 @@ export const AnalyticsPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Qty Delta (+/-)</label>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">{tr('Qty Delta (+/-)', 'Mabadiliko ya idadi (+/-)')}</label>
                 <input
                   type="number"
                   required
@@ -348,50 +395,51 @@ export const AnalyticsPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Reason Code</label>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">{tr('Reason Code', 'Sababu')}</label>
                 <select
                   value={adjForm.reasonCode}
                   onChange={(e) => setAdjForm({ ...adjForm, reasonCode: e.target.value })}
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white"
                 >
-                  <option value="recount">Physical Recount</option>
-                  <option value="damaged">Damaged</option>
-                  <option value="expired">Expired</option>
-                  <option value="shrinkage">Shrinkage</option>
-                  <option value="reversal">Reversal</option>
+                  <option value="recount">{tr('Physical Recount', 'Hesabu upya')}</option>
+                  <option value="damaged">{tr('Damaged', 'Imeharibika')}</option>
+                  <option value="expired">{tr('Expired', 'Muda umeisha')}</option>
+                  <option value="shrinkage">{tr('Shrinkage', 'Upungufu')}</option>
+                  <option value="reversal">{tr('Reversal', 'Rejesho')}</option>
                 </select>
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Audit Notes *</label>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">{tr('Audit Notes *', 'Maelezo *')}</label>
                 <input
                   required
-                  placeholder="e.g. Restock delivery received"
+                  placeholder={tr('e.g. Delivery received', 'mf. Bidhaa zimewasili')}
                   value={adjForm.notes}
                   onChange={(e) => setAdjForm({ ...adjForm, notes: e.target.value })}
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
                 />
               </div>
               <button type="submit" className="py-2 px-4 rounded-lg bg-navy-950 text-white text-xs font-semibold hover:bg-navy-800">
-                Record Adjustment
+                {tr('Save adjustment', 'Hifadhi marekebisho')}
               </button>
             </form>
           )}
 
           <div className="bg-white border border-slate-200 rounded-2xl p-5 overflow-x-auto">
-            <h2 className="text-sm font-bold text-navy-950 mb-3">Live Stock Balances (Available = On-Hand − Reserved)</h2>
+            <h2 className="text-sm font-bold text-navy-950 mb-3">{tr('Live Stock Balances (Available = On-Hand − Reserved)', 'Hali ya stoo (inayopatikana = iliyopo − iliyotengwa)')}</h2>
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-slate-100 text-slate-400 text-left">
-                  <th className="pb-2">SKU / Product</th>
-                  <th className="pb-2">Branch</th>
-                  <th className="pb-2 text-right">On Hand</th>
-                  <th className="pb-2 text-right">Available</th>
-                  <th className="pb-2 text-right">Reorder At</th>
-                  <th className="pb-2 text-right">Stock Value</th>
-                  <th className="pb-2 text-right">Status</th>
+                  <th className="pb-2">{tr('SKU / Product', 'Namba / Bidhaa')}</th>
+                  <th className="pb-2">{tr('Branch', 'Tawi')}</th>
+                  <th className="pb-2 text-right">{tr('On Hand', 'Iliyopo')}</th>
+                  <th className="pb-2 text-right">{tr('Available', 'Inayopatikana')}</th>
+                  <th className="pb-2 text-right">{tr('Reorder At', 'Agiza ikifikia')}</th>
+                  {hasPermission('finance:read') && <th className="pb-2 text-right">{tr('Stock Value', 'Thamani ya stoo')}</th>}
+                  <th className="pb-2 text-right">{tr('Status', 'Hali')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
+                {!invData.inventory.length && <tr><td colSpan={7} className="py-8 text-center text-slate-400">{tr('No inventory records yet.', 'Bado hakuna rekodi za stoo.')}</td></tr>}
                 {invData.inventory.map((it: any) => (
                   <tr key={`${it.branch_id}-${it.product_id}`}>
                     <td className="py-2.5">
@@ -402,7 +450,7 @@ export const AnalyticsPage: React.FC = () => {
                     <td className="py-2.5 text-right">{it.on_hand_quantity}</td>
                     <td className="py-2.5 text-right font-semibold">{it.available_quantity}</td>
                     <td className="py-2.5 text-right text-slate-500">{it.reorder_level}</td>
-                    <td className="py-2.5 text-right">{formatKes(it.inventory_value_cost)}</td>
+                    {hasPermission('finance:read') && <td className="py-2.5 text-right">{formatKes(it.inventory_value_cost)}</td>}
                     <td className="py-2.5 text-right">
                       <span
                         className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
@@ -425,44 +473,44 @@ export const AnalyticsPage: React.FC = () => {
       )}
 
       {/* FINANCE & M-PESA TAB */}
-      {tab === 'finance' && (
+      {!dataLoading && !loadError && allowedTabs.includes(tab) && tab === 'finance' && (
         <div className="space-y-5">
           {hasPermission('finance:write') && (
             <form onSubmit={handleCreateExpense} className="bg-white border border-slate-200 rounded-2xl p-5 grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Vendor *</label>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">{tr('Vendor *', 'Muuzaji *')}</label>
                 <input required value={expForm.vendorName} onChange={(e) => setExpForm({ ...expForm, vendorName: e.target.value })} placeholder="Kenya Power" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg" />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Description *</label>
-                <input required value={expForm.description} onChange={(e) => setExpForm({ ...expForm, description: e.target.value })} placeholder="Monthly prepaid tokens" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg" />
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">{tr('Description *', 'Maelezo *')}</label>
+                <input required value={expForm.description} onChange={(e) => setExpForm({ ...expForm, description: e.target.value })} placeholder={tr('e.g. Monthly electricity', 'mf. Umeme wa mwezi')} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg" />
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Category</label>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">{tr('Category', 'Aina')}</label>
                 <select value={expForm.categoryId} onChange={(e) => setExpForm({ ...expForm, categoryId: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white">
-                  <option value="">General</option>
+                  <option value="">{tr('General', 'Jumla')}</option>
                   {finData.categories.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Amount (KES) *</label>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">{tr('Amount (KES) *', 'Kiasi (KES) *')}</label>
                 <input type="number" required min="1" value={expForm.amount} onChange={(e) => setExpForm({ ...expForm, amount: e.target.value })} placeholder="8500" className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg" />
               </div>
-              <button type="submit" className="py-2 px-4 rounded-lg bg-navy-950 text-white text-xs font-semibold">Record Expense</button>
+              <button type="submit" className="py-2 px-4 rounded-lg bg-navy-950 text-white text-xs font-semibold">{tr('Record Expense', 'Rekodi matumizi')}</button>
             </form>
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <div className="bg-white border border-slate-200 rounded-2xl p-5 overflow-x-auto">
-              <h2 className="text-sm font-bold text-navy-950 mb-3">M-Pesa &amp; Cash Reconciliation Queue</h2>
-              <p className="text-[11px] text-slate-500 mb-3">Distinguishes recorded transactions from verified reconciled receipts.</p>
+              <h2 className="text-sm font-bold text-navy-950 mb-3">{tr('M-Pesa & Cash Reconciliation Queue', 'Ulinganisho wa M-Pesa na pesa taslimu')}</h2>
+              <p className="text-[11px] text-slate-500 mb-3">{tr('Distinguishes recorded transactions from verified reconciled receipts.', 'Linganisha miamala iliyorekodiwa na risiti zilizothibitishwa.')}</p>
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-slate-100 text-slate-400 text-left">
-                    <th className="pb-2">Receipt / Account</th>
-                    <th className="pb-2 text-right">Amount</th>
-                    <th className="pb-2 text-right">Status</th>
-                    <th className="pb-2 text-right">Action</th>
+                    <th className="pb-2">{tr('Receipt / Account', 'Risiti / Akaunti')}</th>
+                    <th className="pb-2 text-right">{tr('Amount', 'Kiasi')}</th>
+                    <th className="pb-2 text-right">{tr('Status', 'Hali')}</th>
+                    <th className="pb-2 text-right">{tr('Action', 'Hatua')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -494,13 +542,13 @@ export const AnalyticsPage: React.FC = () => {
             </div>
 
             <div className="bg-white border border-slate-200 rounded-2xl p-5 overflow-x-auto">
-              <h2 className="text-sm font-bold text-navy-950 mb-3">Recorded Operating Expenses</h2>
+              <h2 className="text-sm font-bold text-navy-950 mb-3">{tr('Recorded Operating Expenses', 'Matumizi yaliyorekodiwa')}</h2>
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-slate-100 text-slate-400 text-left">
-                    <th className="pb-2">Date</th>
-                    <th className="pb-2">Vendor / Description</th>
-                    <th className="pb-2 text-right">Amount</th>
+                    <th className="pb-2">{tr('Date', 'Tarehe')}</th>
+                    <th className="pb-2">{tr('Vendor / Description', 'Muuzaji / Maelezo')}</th>
+                    <th className="pb-2 text-right">{tr('Amount', 'Kiasi')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -522,30 +570,27 @@ export const AnalyticsPage: React.FC = () => {
       )}
 
       {/* CSV / EXCEL IMPORT PIPELINE TAB */}
-      {tab === 'imports' && (
+      {!dataLoading && !loadError && allowedTabs.includes(tab) && tab === 'imports' && (
         <div className="space-y-5">
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
+          {uploadableDatasets.length > 0 ? <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-base font-bold text-navy-950">1. Upload CSV, Excel (.xlsx), or JSON File</h2>
-                <p className="text-xs text-slate-500">Every file passes security inspection, column detection, duplicate detection, and row-level validation.</p>
+                <h2 className="text-base font-bold text-navy-950">{tr('1. Upload CSV, Excel (.xlsx), or JSON File', '1. Pakia faili ya CSV, Excel (.xlsx), au JSON')}</h2>
+                <p className="text-xs text-slate-500">{tr('Every file passes security inspection, column detection, duplicate detection, and row-level validation.', 'Kila faili hukaguliwa kwa usalama, safu, nakala na usahihi wa rekodi.')}</p>
               </div>
               <select
                 value={datasetType}
                 onChange={(e) => setDatasetType(e.target.value)}
                 className="px-3 py-2 text-xs font-semibold border border-slate-200 rounded-lg bg-white"
               >
-                <option value="sales">Sales Transactions</option>
-                <option value="expenses">Expenses Ledger</option>
-                <option value="products">Products &amp; Opening Stock</option>
-                <option value="customers">Customer Directory</option>
+                {uploadableDatasets.map((dataset) => <option key={dataset.code} value={dataset.code}>{dataset.label}</option>)}
               </select>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
               <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-navy-950 text-white text-xs font-semibold hover:bg-navy-800">
                 <FileUp className="w-4 h-4" />
-                Choose CSV / XLSX File
+                {tr('Choose a file', 'Chagua faili')}
                 <input
                   type="file"
                   accept=".csv,.xlsx,.xls,.json"
@@ -562,20 +607,20 @@ export const AnalyticsPage: React.FC = () => {
                 onClick={downloadCsvTemplate}
                 className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50"
               >
-                Download CSV Template
+                {tr('Download CSV template', 'Pakua kiolezo cha CSV')}
               </button>
             </div>
-          </div>
+          </div> : <div className="p-panel p-5 p-panel-note">{tr('Your role can view import history but cannot upload records.', 'Jukumu lako linaweza kuona historia ya faili lakini haliwezi kupakia rekodi.')}</div>}
 
           {activeImport && (
             <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wider text-teal-600">
-                    Active Import Job · Status: {activeImport.status}
+                    {tr('Current file · Status', 'Faili ya sasa · Hali')}: {activeImport.status}
                   </div>
                   <div className="text-sm font-bold text-navy-950 mt-0.5">
-                    {activeImport.total_records} total rows · {activeImport.accepted_records} accepted · {activeImport.rejected_records} rejected · {activeImport.duplicate_records} duplicates
+                    {tr(`${activeImport.total_records} rows · ${activeImport.accepted_records} accepted · ${activeImport.rejected_records} rejected · ${activeImport.duplicate_records} duplicates`, `${activeImport.total_records} mistari · ${activeImport.accepted_records} imekubaliwa · ${activeImport.rejected_records} imekataliwa · ${activeImport.duplicate_records} ni nakala`)}
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -585,7 +630,7 @@ export const AnalyticsPage: React.FC = () => {
                     onClick={handleValidateImport}
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold"
                   >
-                    <RefreshCw className="w-3.5 h-3.5" /> 2. Validate Rows
+                    <RefreshCw className="w-3.5 h-3.5" /> {tr('2. Validate rows', '2. Hakiki mistari')}
                   </button>
                   {activeImport.status === 'validated' && activeImport.accepted_records > 0 && (
                     <button
@@ -594,7 +639,7 @@ export const AnalyticsPage: React.FC = () => {
                       onClick={handleCommitImport}
                       className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-teal-600 text-white text-xs font-semibold hover:bg-teal-700"
                     >
-                      <CheckCircle2 className="w-3.5 h-3.5" /> 3. Commit {activeImport.accepted_records} Valid Rows
+                      <CheckCircle2 className="w-3.5 h-3.5" /> {tr(`3. Save ${activeImport.accepted_records} valid rows`, `3. Hifadhi mistari ${activeImport.accepted_records} sahihi`)}
                     </button>
                   )}
                 </div>
@@ -610,7 +655,7 @@ export const AnalyticsPage: React.FC = () => {
                       onChange={(e) => setImportMapping({ ...importMapping, [target]: e.target.value })}
                       className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
                     >
-                      <option value="">-- unmapped --</option>
+                      <option value="">{tr('-- unmapped --', '-- haijalinganishwa --')}</option>
                       {(activeImport.detected_columns || []).map((col: string) => (
                         <option key={col} value={col}>{col}</option>
                       ))}
@@ -623,17 +668,17 @@ export const AnalyticsPage: React.FC = () => {
               {importErrors.length > 0 && (
                 <div className="p-4 rounded-xl bg-rose-50/70 border border-rose-200 space-y-2">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-rose-800">
-                    <AlertCircle className="w-4 h-4" /> Validation Errors Flagged ({importErrors.length}) — Preserved for Review
+                    <AlertCircle className="w-4 h-4" /> {tr(`Rows to review (${importErrors.length})`, `Mistari ya kukagua (${importErrors.length})`)}
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs text-rose-900">
                       <thead>
                         <tr className="border-b border-rose-200 text-left text-[11px]">
-                          <th className="pb-1.5">Row #</th>
-                          <th className="pb-1.5">Column</th>
-                          <th className="pb-1.5">Code</th>
-                          <th className="pb-1.5">Explanation</th>
-                          <th className="pb-1.5">Raw Value</th>
+                          <th className="pb-1.5">{tr('Row #', 'Safu #')}</th>
+                          <th className="pb-1.5">{tr('Column', 'Safu')}</th>
+                          <th className="pb-1.5">{tr('Code', 'Msimbo')}</th>
+                          <th className="pb-1.5">{tr('Explanation', 'Maelezo')}</th>
+                          <th className="pb-1.5">{tr('Raw Value', 'Thamani ya awali')}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-rose-200/60">
@@ -656,16 +701,16 @@ export const AnalyticsPage: React.FC = () => {
 
           {/* Import History */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 overflow-x-auto">
-            <h3 className="text-sm font-bold text-navy-950 mb-3">Import Provenance History</h3>
+            <h3 className="text-sm font-bold text-navy-950 mb-3">{tr('Import Provenance History', 'Historia ya faili')}</h3>
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-slate-100 text-slate-400 text-left">
-                  <th className="pb-2">File</th>
-                  <th className="pb-2">Dataset</th>
-                  <th className="pb-2">Status</th>
-                  <th className="pb-2 text-right">Accepted / Total</th>
-                  <th className="pb-2 text-right">Quality</th>
-                  <th className="pb-2 text-right">Created</th>
+                  <th className="pb-2">{tr('File', 'Faili')}</th>
+                  <th className="pb-2">{tr('Dataset', 'Aina ya data')}</th>
+                  <th className="pb-2">{tr('Status', 'Hali')}</th>
+                  <th className="pb-2 text-right">{tr('Accepted / Total', 'Zilizokubaliwa / Jumla')}</th>
+                  <th className="pb-2 text-right">{tr('Quality', 'Ubora')}</th>
+                  <th className="pb-2 text-right">{tr('Created', 'Tarehe')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -681,11 +726,260 @@ export const AnalyticsPage: React.FC = () => {
                 ))}
                 {imports.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-6 text-center text-slate-400">No spreadsheet imports yet. Upload a CSV/XLSX above to begin.</td>
+                    <td colSpan={6} className="py-6 text-center text-slate-400">{tr('No spreadsheet imports yet. Upload a CSV/XLSX above to begin.', 'Bado hakuna faili. Pakia CSV/XLSX hapo juu kuanza.')}</td>
                   </tr>
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* BUSINESS WEBSITE URL FETCH, ANALYSIS & ONE-CLICK CATALOG IMPORT */}
+      {!dataLoading && !loadError && allowedTabs.includes(tab) && tab === 'website' && (
+        <div className="space-y-5">
+          <div className="bg-[#041527] text-white rounded-2xl p-6 border border-[#2ED3C2]/25 space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-wider text-[#2ED3C2] flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5" /> {tr('BUSINESS WEBSITE', 'TOVUTI YA BIASHARA')}
+                </div>
+                <h2 className="text-lg font-extrabold text-white mt-1">
+                  {tr('Review your public website catalog', 'Kagua bidhaa za tovuti yako')}
+                </h2>
+                <p className="text-xs text-slate-300 mt-1 max-w-2xl">
+                  {tr('Enter a public website or product feed to review the items and prices found. You can choose whether to import eligible KES-priced items.', 'Weka tovuti ya wazi au faili ya bidhaa ili kukagua bidhaa na bei zilizopatikana. Unaweza kuchagua kuingiza bidhaa zenye bei ya KES.')}
+                </p>
+              </div>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleAnalyzeWebsite(false);
+              }}
+              className="flex flex-col sm:flex-row gap-2.5"
+            >
+              <input
+                type="text"
+                aria-label={tr('Business website URL', 'Anwani ya tovuti ya biashara')}
+                value={websiteUrl}
+                onChange={(e) => setWebsiteUrl(e.target.value)}
+                placeholder="https://yourbusiness.co.ke"
+                className="flex-1 px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-sm text-white placeholder:text-slate-400 focus:outline-none focus:border-[#2ED3C2]"
+              />
+              <button
+                type="submit"
+                disabled={websiteBusy}
+                className="inline-flex items-center justify-center gap-1.5 px-5 py-3 rounded-xl bg-[#2ED3C2] text-[#041527] text-xs font-extrabold hover:bg-[#5ce2d4] disabled:opacity-50 shrink-0"
+              >
+                <Sparkles className="w-4 h-4" />
+                {websiteBusy ? tr('Checking…', 'Inakagua…') : tr('Review website', 'Kagua tovuti')}
+              </button>
+            </form>
+          </div>
+
+          {websiteResult && (
+            <div className="space-y-5">
+              {/* KPI Summary Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white border border-slate-200 rounded-xl p-4">
+                  <div className="text-[11px] font-semibold text-slate-400 uppercase">{tr('Website & Platform', 'Tovuti na mfumo')}</div>
+                  <div className="text-sm font-extrabold text-navy-950 mt-1 truncate">{websiteResult.business_profile?.name}</div>
+                  <div className="text-xs text-teal-700 font-semibold mt-0.5">{websiteResult.business_profile?.platform}</div>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-xl p-4">
+                  <div className="text-[11px] font-semibold text-slate-400 uppercase">{tr('Catalog Items Extracted', 'Bidhaa zilizopatikana')}</div>
+                  <div className="text-2xl font-extrabold text-navy-950 mt-0.5">
+                    {websiteResult.pricing_stats?.total_items_found || 0}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    {websiteResult.pricing_stats?.priced_items_count || 0} {tr('with a detected price', 'zina bei iliyopatikana')}
+                  </div>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-xl p-4">
+                  <div className="text-[11px] font-semibold text-slate-400 uppercase">{tr('Median / Price Range', 'Wastani / Wigo wa bei')}</div>
+                  <div className="text-lg font-extrabold text-teal-700 mt-0.5">
+                    {websiteResult.pricing_stats?.median_price
+                      ? `${websiteResult.pricing_stats.currency} ${Math.round(websiteResult.pricing_stats.median_price).toLocaleString()}`
+                      : '—'}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    {websiteResult.pricing_stats?.min_price
+                      ? `Min ${Math.round(websiteResult.pricing_stats.min_price).toLocaleString()} · Max ${Math.round(websiteResult.pricing_stats.max_price).toLocaleString()}`
+                      : tr('Prices unavailable or currencies differ', 'Bei hazipatikani au sarafu zinatofautiana')}
+                  </div>
+                </div>
+                <div className="bg-white border border-slate-200 rounded-xl p-4">
+                  <div className="text-[11px] font-semibold text-slate-400 uppercase">{tr('Digital Readiness Score', 'Alama ya utayari wa kidijitali')}</div>
+                  <div className="text-2xl font-extrabold text-navy-950 mt-0.5">
+                    {websiteResult.business_profile?.readiness_score || 0}
+                    <span className="text-xs font-semibold text-slate-400">/100</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    WhatsApp: {websiteResult.business_profile?.has_whatsapp_link ? tr('Link found', 'Kiungo kimepatikana') : tr('No link found', 'Hakuna kiungo kilichopatikana')}
+                  </div>
+                </div>
+              </div>
+
+              {/* Pie Charts + Insights */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                <div className="bg-white border border-slate-200 rounded-2xl p-5">
+                  <h3 className="text-sm font-bold text-navy-950 mb-1">{tr('Catalog Categories Pie', 'Mgawanyo wa aina za bidhaa')}</h3>
+                  <p className="text-xs text-slate-400 mb-3">{tr('Item distribution by detected category', 'Mgawanyo wa bidhaa kwa aina')}</p>
+                  {websiteResult.charts?.category_pie?.length > 0 ? (
+                    <div className="h-52">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={websiteResult.charts.category_pie}
+                            dataKey="value"
+                            nameKey="label"
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={40}
+                            outerRadius={70}
+                            paddingAngle={3}
+                            stroke="#142b48"
+                            isAnimationActive={false}
+                          >
+                            {websiteResult.charts.category_pie.map((_: any, idx: number) => (
+                              <Cell key={idx} fill={PORTAL_CHART_COLORS[idx % PORTAL_CHART_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                          <Legend wrapperStyle={{ fontSize: 11 }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <div className="h-44 flex items-center justify-center text-xs text-slate-400">{tr('No category clusters detected.', 'Hakuna aina za bidhaa zilizopatikana.')}</div>
+                  )}
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-2xl p-5">
+                  <h3 className="text-sm font-bold text-navy-950 mb-1">{tr('Price-Tier Distribution Pie', 'Mgawanyo wa viwango vya bei')}</h3>
+                  <p className="text-xs text-slate-400 mb-3">{tr('Budget vs Mid-Tier vs Premium offerings', 'Bidhaa za bei ya chini, kati na juu')}</p>
+                  {websiteResult.charts?.price_tier_pie?.length > 0 ? (
+                    <div className="h-52">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={websiteResult.charts.price_tier_pie}
+                            dataKey="value"
+                            nameKey="label"
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={40}
+                            outerRadius={70}
+                            paddingAngle={3}
+                            stroke="#142b48"
+                            isAnimationActive={false}
+                          >
+                            {websiteResult.charts.price_tier_pie.map((_: any, idx: number) => (
+                              <Cell key={idx} fill={PORTAL_CHART_COLORS[(idx + 1) % PORTAL_CHART_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                          <Legend wrapperStyle={{ fontSize: 11 }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <div className="h-44 flex items-center justify-center text-xs text-slate-400">{tr('No priced items detected on page.', 'Hakuna bei za bidhaa zilizopatikana.')}</div>
+                  )}
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
+                  <h3 className="text-sm font-bold text-navy-950">{tr('Data Scientist Website Insights', 'Uchambuzi wa tovuti')}</h3>
+                  <ul className="space-y-2 text-xs text-slate-700">
+                    {(language === 'sw' && websiteResult.insights_sw ? websiteResult.insights_sw : websiteResult.insights || []).map((ins: string, idx: number) => (
+                      <li key={idx} className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
+                        <span>{ins}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {websiteResult.products?.some((item: any) => item.currency === 'KES' && Number(item.price) > 0) && hasPermission('inventory:write') && hasPermission('imports:manage') && (
+                    <button
+                      type="button"
+                      disabled={websiteBusy}
+                      onClick={() => handleAnalyzeWebsite(true, websiteResult.url)}
+                      className="w-full py-2.5 rounded-xl bg-[#041527] text-[#2ED3C2] text-xs font-bold hover:bg-navy-800"
+                    >
+                      {tr('Import or update KES-priced items', 'Ingiza au sasisha bidhaa zenye bei ya KES')}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <p className="p-panel-note">{tr('Only an explicit positive KES price can be imported. Products not created by this website source are not overwritten. No purchase costs or stock counts are inferred.', 'Ni bei ya KES iliyoonyeshwa wazi pekee inayoweza kuingizwa. Bidhaa zisizotoka kwenye chanzo hiki hazitabadilishwa. Gharama na kiasi cha stoo havikadiriwi.')}</p>
+              {/* Extracted Products Table */}
+              {websiteResult.products?.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 overflow-x-auto">
+                  <h3 className="text-sm font-bold text-navy-950 mb-3">
+                    {tr('Items found on the website', 'Bidhaa zilizopatikana kwenye tovuti')} ({websiteResult.products.length})
+                  </h3>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-slate-400 text-left">
+                        <th className="pb-2">{tr('Product / Service', 'Bidhaa / Huduma')}</th>
+                        <th className="pb-2">{tr('SKU', 'Namba ya bidhaa')}</th>
+                        <th className="pb-2">{tr('Category', 'Aina')}</th>
+                        <th className="pb-2 text-right">{tr('Listed Price', 'Bei iliyoonyeshwa')}</th>
+                        <th className="pb-2 text-right">{tr('Source', 'Chanzo')}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {websiteResult.products.slice(0, 50).map((item: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="py-2 font-semibold text-navy-950">{item.name}</td>
+                          <td className="py-2 font-mono text-slate-500">{item.sku || '—'}</td>
+                          <td className="py-2 text-slate-600">{item.category || 'General'}</td>
+                          <td className="py-2 text-right font-bold text-teal-700">
+                            {item.price ? `${item.currency || tr('Currency unspecified', 'Sarafu haijawekwa')} ${Number(item.price).toLocaleString()}` : '—'}
+                          </td>
+                          <td className="py-2 text-right text-[10px] uppercase text-slate-400">{item.source}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Previously Synced Websites */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5">
+            <h3 className="text-sm font-bold text-navy-950 mb-3">{tr('Connected Business Websites', 'Tovuti zilizounganishwa')}</h3>
+            {websiteSources.length > 0 ? (
+              <div className="space-y-2.5">
+                {websiteSources.map((src) => (
+                  <div key={src.id} className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-bold text-navy-950">{src.name}</div>
+                      <div className="text-[11px] text-slate-500">
+                        {src.config?.url} · {src.config?.pricing_stats?.total_items_found || 0} {tr('items', 'bidhaa')} · {tr('Readiness', 'Utayari')}{' '}
+                        {src.config?.business_profile?.readiness_score || 0}/100 · {tr('Checked', 'Imekaguliwa')}{' '}
+                        {src.last_synced_at ? new Date(src.last_synced_at).toLocaleString('en-KE') : tr('recently', 'hivi karibuni')}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={websiteBusy}
+                      onClick={() => handleAnalyzeWebsite(false, src.config?.url)}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-navy-950 hover:border-teal-500"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-teal-600" /> {tr('Check again', 'Kagua tena')}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">
+                {tr('No website source has been saved yet. Import eligible items to save one.', 'Bado hakuna chanzo cha tovuti kilichohifadhiwa. Ingiza bidhaa zinazokubalika ili kuhifadhi chanzo.')}
+              </p>
+            )}
           </div>
         </div>
       )}

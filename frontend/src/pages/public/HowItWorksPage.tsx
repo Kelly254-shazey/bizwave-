@@ -64,7 +64,7 @@ export const HowItWorksPage: React.FC = () => (
           </div>
           <h3 className="text-base font-bold text-[#2ED3C2]">Upload &amp; Validate</h3>
           <p className="text-xs text-slate-300 leading-relaxed">
-            Drop any CSV or Excel export of sales, M-Pesa logs, stock, or expenses — or use our clean header template.
+            Upload a supported CSV or Excel file for sales, products, expenses or customers, then review validation before saving.
           </p>
           <div className="p-3 rounded-xl bg-[#041527] border border-white/10 text-[11px] font-mono space-y-1.5 text-slate-300">
             <div className="flex justify-between"><span>Date</span><span className="text-[#2ED3C2]">→ Validated</span></div>
@@ -119,7 +119,7 @@ export const HowItWorksPage: React.FC = () => (
           </div>
           <h3 className="text-base font-bold text-[#2ED3C2]">Ask AI &amp; Act</h3>
           <p className="text-xs text-slate-300 leading-relaxed">
-            Ask BizWave AI in English or Kiswahili, simulate What-If price or cost moves, and trigger opted-in customer outreach.
+            Ask BizWave AI in English or Kiswahili, simulate What-If price or cost moves, and review recorded customer consent.
           </p>
           <div className="p-3 rounded-xl bg-[#041527] border border-[#2ED3C2]/25 text-xs space-y-1.5">
             <div className="text-[#2ED3C2] font-semibold">&ldquo;Why did sales shift this week?&rdquo;</div>
@@ -158,7 +158,7 @@ export const HowItWorksPage: React.FC = () => (
           </p>
           <ul className="space-y-2.5 text-xs sm:text-sm text-slate-300">
             <li className="flex items-start gap-2"><Lock className="w-4 h-4 text-[#2ED3C2] mt-0.5 shrink-0" /> <span><strong className="text-white">No customer payments handled:</strong> Your buyers keep paying your existing M-Pesa Till, Paybill, Cash, or Bank directly.</span></li>
-            <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-[#2ED3C2] mt-0.5 shrink-0" /> <span><strong className="text-white">Only platform fees billed:</strong> The only payments in BizWave are your monthly subscription and optional BizWave add-on services.</span></li>
+            <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-[#2ED3C2] mt-0.5 shrink-0" /> <span><strong className="text-white">Online billing not connected:</strong> Plan prices are for reference; subscriptions and add-ons cannot be purchased here yet.</span></li>
             <li className="flex items-start gap-2"><CheckCircle2 className="w-4 h-4 text-[#2ED3C2] mt-0.5 shrink-0" /> <span><strong className="text-white">Pure decision power:</strong> Every record you enter or import works exclusively to help you analyse and grow.</span></li>
           </ul>
         </div>

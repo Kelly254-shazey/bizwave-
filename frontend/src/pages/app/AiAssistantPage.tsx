@@ -1,25 +1,46 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import {
   Activity,
+  Calculator,
   Database,
   Lock,
+  Mic,
+  MicOff,
+  PieChart as PieChartIcon,
   Plus,
   Send,
   Sliders,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
+  TrendingUp,
   Volume2,
   X,
 } from 'lucide-react';
 import { apiRequest } from '../../services/api';
 import { useAuth } from '../../stores/authStore';
 import { formatKes } from '../../i18n/translations';
+import { formatCompactAxis, formatKesPrecise } from '../../utils/format';
+import { PORTAL_CHART_COLORS } from '../../utils/chart-colors';
 
 export const AiAssistantPage: React.FC = () => {
-  const { activeOrg, selectedBranchId, language, hasFeature } = useAuth();
+  const { activeOrg, selectedBranchId, language, hasFeature, hasPermission } = useAuth();
   const [aiLang, setAiLang] = useState<'en' | 'sw'>(language);
   const [conversations, setConversations] = useState<any[]>([]);
   const [suggested, setSuggested] = useState<{ en: string[]; sw: string[] }>({ en: [], sw: [] });
@@ -28,15 +49,18 @@ export const AiAssistantPage: React.FC = () => {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
-  const [status, setStatus] = useState<any | null>(null);
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  const scopeVersion = useRef(0);
+  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
   // Interactive What-If Financial Scenario Simulator state
   const [showSim, setShowSim] = useState(false);
   const [simInputs, setSimInputs] = useState({
-    priceChangePct: 5,
-    volumeChangePct: 5,
-    expenseChangePct: -10,
-    stockoutRecoveryPct: 4,
+    priceChangePct: 0,
+    volumeChangePct: 0,
+    expenseChangePct: 0,
+    stockoutRecoveryPct: 0,
   });
   const [simResult, setSimResult] = useState<any | null>(null);
   const [simLoading, setSimLoading] = useState(false);
@@ -44,39 +68,37 @@ export const AiAssistantPage: React.FC = () => {
 
   const allowed = hasFeature('ai_assistant');
 
-  const loadConversations = async () => {
-    if (!allowed) return;
+  const loadConversations = async (selectFirst = false, version = scopeVersion.current) => {
+    if (!allowed || !hasPermission('ai:use')) return;
     try {
-      const [res, st] = await Promise.all([
-        apiRequest('/ai/conversations'),
-        apiRequest('/ai/status').catch(() => null),
-      ]);
-      setConversations(res.conversations || []);
+      const res = await apiRequest('/ai/conversations');
+      if (version !== scopeVersion.current) return;
+      const branchKey = selectedBranchId === 'all' ? null : selectedBranchId;
+      const matching = (res.conversations || []).filter((conversation: any) => (conversation.branch_id || null) === branchKey);
+      setConversations(matching);
       setSuggested(res.suggestedQuestions || { en: [], sw: [] });
-      if (st) setStatus(st);
-      if (res.conversations?.[0] && !activeConvId) {
-        selectConversation(res.conversations[0].id);
-      }
+      if (selectFirst && matching[0]) await selectConversation(matching[0].id, version);
     } catch (e: any) {
-      setError(e.message);
+      if (version === scopeVersion.current) setError(e.message);
     }
   };
 
-  const selectConversation = async (id: string) => {
+  const selectConversation = async (id: string, version = scopeVersion.current) => {
     setActiveConvId(id);
     try {
       const res = await apiRequest(`/ai/conversations/${id}/messages`);
-      setMessages(res.messages || []);
+      if (version === scopeVersion.current) setMessages(res.messages || []);
     } catch (e: any) {
-      setError(e.message);
+      if (version === scopeVersion.current) { setMessages([]); setError(e.message); }
     }
   };
 
   const startNewConversation = async () => {
+    const version = scopeVersion.current;
     const res = await apiRequest('/ai/conversations', {
-      method: 'POST',
-      body: { language: aiLang, branchId: selectedBranchId },
+      method: 'POST', body: { language: aiLang, branchId: selectedBranchId },
     });
+    if (version !== scopeVersion.current) throw new Error('The selected business or branch changed.');
     setConversations((prev) => [res.conversation, ...prev]);
     setActiveConvId(res.conversation.id);
     setMessages([]);
@@ -84,10 +106,35 @@ export const AiAssistantPage: React.FC = () => {
   };
 
   useEffect(() => {
-    loadConversations();
-  }, [activeOrg?.id]);
+    const version = ++scopeVersion.current;
+    setConversations([]); setActiveConvId(null); setMessages([]); setSimResult(null); setShowSim(false); setError('');
+    loadConversations(true, version);
+    return () => { scopeVersion.current++; };
+  }, [activeOrg?.id, selectedBranchId]);
+
+  useEffect(() => { setAiLang(language); }, [language]);
+  useEffect(() => () => { if (recognitionRef.current) { recognitionRef.current.onend = null; recognitionRef.current.abort(); } }, []);
+
+  const toggleDictation = () => {
+    if (listening && recognitionRef.current) { recognitionRef.current.stop(); return; }
+    if (!SpeechRecognition) { setError(aiLang === 'sw' ? 'Kivinjari hiki hakiruhusu kuandika kwa sauti.' : 'Voice input is not available in this browser.'); return; }
+    try {
+      const recognition = new SpeechRecognition();
+      recognitionRef.current = recognition;
+      recognition.lang = aiLang === 'sw' ? 'sw-KE' : 'en-KE';
+      recognition.interimResults = false;
+      recognition.onresult = (event: any) => {
+        const spoken = Array.from(event.results as any[]).map((result: any) => result[0]?.transcript || '').join(' ').trim();
+        if (spoken) setInput((current) => `${current}${current ? ' ' : ''}${spoken}`);
+      };
+      recognition.onerror = (event: any) => { setError(event.error === 'not-allowed' ? (aiLang === 'sw' ? 'Ruhusu matumizi ya kipaza sauti kwenye kivinjari.' : 'Allow microphone access in your browser.') : (aiLang === 'sw' ? 'Sauti haikuweza kusomwa. Jaribu tena au andika swali.' : 'Voice input could not be read. Try again or type your question.')); setListening(false); };
+      recognition.onend = () => { setListening(false); recognitionRef.current = null; };
+      setError(''); recognition.start(); setListening(true);
+    } catch { setListening(false); setError(aiLang === 'sw' ? 'Imeshindikana kutumia kipaza sauti.' : 'Could not start the microphone.'); }
+  };
 
   const runSimulation = async () => {
+    if (!hasPermission('finance:read') || !hasPermission('sales:read')) { setError('Your role cannot access financial scenarios.'); return; }
     setSimLoading(true);
     try {
       const res = await apiRequest('/ai/simulate', {
@@ -105,21 +152,24 @@ export const AiAssistantPage: React.FC = () => {
   const sendQuestion = async (questionText?: string) => {
     const q = (questionText ?? input).trim();
     if (!q) return;
+    const version = scopeVersion.current;
+    const temporaryId = `tmp-${Date.now()}`;
     setSending(true);
     setError('');
     setInput('');
     try {
       let cid = activeConvId;
       if (!cid) cid = await startNewConversation();
-      setMessages((prev) => [...prev, { id: `tmp-${Date.now()}`, role: 'user', content: q, language: aiLang }]);
+      setMessages((prev) => [...prev, { id: temporaryId, role: 'user', content: q, language: aiLang }]);
       const res = await apiRequest(`/ai/conversations/${cid}/messages`, {
         method: 'POST',
         body: { content: q, language: aiLang, branchId: selectedBranchId },
       });
+      if (version !== scopeVersion.current) return;
       setMessages((prev) => [...prev, res.assistantMessage]);
-      loadConversations();
+      loadConversations(false, version);
     } catch (e: any) {
-      setError(e.message);
+      if (version === scopeVersion.current) { setMessages((prev) => prev.filter((message) => message.id !== temporaryId)); setInput(q); setError(e.message); }
     } finally {
       setSending(false);
     }
@@ -137,7 +187,7 @@ export const AiAssistantPage: React.FC = () => {
     try {
       const res = await apiRequest('/ai/voice/speak', {
         method: 'POST',
-        body: { text: msg.content, language: msg.language === 'sw' ? 'sw' : aiLang },
+        body: { text: msg.content, language: msg.language === 'sw' ? 'sw' : 'en' },
       });
       if (res.audioBase64) {
         const audio = new Audio(`data:${res.mimeType || 'audio/wav'};base64,${res.audioBase64}`);
@@ -148,14 +198,19 @@ export const AiAssistantPage: React.FC = () => {
         const utt = new SpeechSynthesisUtterance(msg.content.replace(/[*#`]/g, ''));
         utt.lang = msg.language === 'sw' ? 'sw-KE' : 'en-KE';
         utt.onend = () => setSpeakingId(null);
+        utt.onerror = () => { setSpeakingId(null); setError(aiLang === 'sw' ? 'Imeshindikana kusoma jibu kwa sauti.' : 'Could not play this answer aloud.'); };
         window.speechSynthesis.speak(utt);
       } else {
         setSpeakingId(null);
+        setError(aiLang === 'sw' ? 'Kivinjari hiki hakina usomaji wa sauti.' : 'Speech playback is not available in this browser.');
       }
     } catch {
       setSpeakingId(null);
+      setError(aiLang === 'sw' ? 'Imeshindikana kusoma jibu kwa sauti.' : 'Could not play this answer aloud.');
     }
   };
+
+  if (!hasPermission('ai:use')) return <div className="p-panel p-7"><h1 className="p-title">{aiLang === 'sw' ? 'Msaidizi wa BizWave' : 'BizWave assistant'}</h1><p className="p-subtitle">{aiLang === 'sw' ? 'Jukumu lako halina ruhusa ya kutumia msaidizi.' : 'Your role does not have access to the assistant.'}</p></div>;
 
   if (!allowed) {
     return (
@@ -163,10 +218,10 @@ export const AiAssistantPage: React.FC = () => {
         <Lock className="w-10 h-10 text-amber-500 mx-auto" />
         <h1 className="text-xl font-bold text-navy-950">BizWave AI Requires Intelligence or Enterprise Plan</h1>
         <p className="text-sm text-slate-600">
-          Your workspace ({activeOrg?.display_name}) is on the <strong>{activeOrg?.plan_code.toUpperCase()}</strong> plan. Upgrade to unlock English &amp; Kiswahili conversational intelligence, Executive Health Diagnostics, and What-If Simulations.
+          Your workspace ({activeOrg?.display_name}) is on the <strong>{activeOrg?.plan_code.toUpperCase()}</strong> plan. AI is not enabled for this plan. Online plan changes are not available yet; contact your administrator.
         </p>
         <Link to="/app/billing" className="inline-block mt-2 px-5 py-2.5 rounded-xl bg-[#041527] text-[#2ED3C2] text-sm font-bold">
-          Upgrade Subscription Plan
+          View plan details
         </Link>
       </div>
     );
@@ -183,16 +238,9 @@ export const AiAssistantPage: React.FC = () => {
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <div className="text-[11px] font-bold uppercase tracking-wider text-[#2ED3C2]">Ask Anything About Your Numbers</div>
-            <h1 className="text-base sm:text-lg font-extrabold text-white">BizWave AI — Executive Decision Copilot</h1>
-            <p className="text-xs text-slate-300">
-              Ask in plain English or Kiswahili — every answer is verified directly against your live sales, M-Pesa, stock, and expense records ·{' '}
-              <span className="text-[#2ED3C2] font-semibold">
-                {status?.externalLlmEnabled
-                  ? `Hybrid AI (${status.externalLlmModel})`
-                  : 'Verified Data & Advisory Engine'}
-              </span>
-            </p>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-[#2ED3C2]">{aiLang === 'sw' ? 'ULIZA KUHUSU BIASHARA YAKO' : 'ASK ABOUT YOUR BUSINESS'}</div>
+            <h1 className="text-base sm:text-lg font-extrabold text-white">{aiLang === 'sw' ? 'Msaidizi wa BizWave' : 'Your BizWave assistant'}</h1>
+            <p className="text-xs text-slate-300">{aiLang === 'sw' ? 'Uliza kwa Kiingereza au Kiswahili. Majibu hutumia rekodi unazoweza kuona; makadirio si uhakika.' : 'Ask in English or Kiswahili. Answers use the records available to your role; estimates are not guarantees.'}</p>
           </div>
         </div>
 
@@ -203,26 +251,68 @@ export const AiAssistantPage: React.FC = () => {
             onClick={() =>
               sendQuestion(
                 aiLang === 'sw'
+                  ? 'Fanya uchambuzi wa kina wa hesabu za faida na break-even'
+                  : 'Run a full Data Scientist audit & break-even calculation',
+              )
+            }
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#2ED3C2] text-[#041527] text-xs font-bold hover:bg-[#5ce2d4]"
+          >
+            <Calculator className="w-3.5 h-3.5" />
+            {aiLang === 'sw' ? 'Hesabu za Data Scientist' : 'Pro Data Scientist Audit'}
+          </button>
+          <button
+            type="button"
+            disabled={sending}
+            onClick={() =>
+              sendQuestion(
+                aiLang === 'sw'
+                  ? 'Tabiri mauzo yangu ya siku 14 zijazo kwa grafu'
+                  : 'Predict my next 14 days sales with a forecast graph',
+              )
+            }
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#2ED3C2]/40 bg-white/5 text-white text-xs font-semibold hover:bg-white/10"
+          >
+            <TrendingUp className="w-3.5 h-3.5 text-[#2ED3C2]" />
+            {aiLang === 'sw' ? 'Grafu ya Utabiri' : 'Forecast Graph'}
+          </button>
+          <button
+            type="button"
+            disabled={sending}
+            onClick={() =>
+              sendQuestion(
+                aiLang === 'sw'
+                  ? 'Chora chati ya duara ya mauzo ya M-Pesa na pesa taslimu'
+                  : 'Draw a pie chart of my M-Pesa vs cash sales',
+              )
+            }
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#2ED3C2]/40 bg-white/5 text-white text-xs font-semibold hover:bg-white/10"
+          >
+            <PieChartIcon className="w-3.5 h-3.5 text-[#2ED3C2]" />
+            {aiLang === 'sw' ? 'Chati ya Duara' : 'Pie Chart'}
+          </button>
+          <button
+            type="button"
+            disabled={sending}
+            onClick={() =>
+              sendQuestion(
+                aiLang === 'sw'
                   ? 'Nipe ripoti ya afya ya biashara yangu leo'
                   : 'Give me my executive business health briefing',
               )
             }
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#2ED3C2] text-[#041527] text-xs font-bold hover:bg-[#5ce2d4]"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/20 bg-white/5 text-white text-xs font-semibold hover:bg-white/10"
           >
-            <Activity className="w-3.5 h-3.5" />
-            {aiLang === 'sw' ? 'Ripoti ya Afya (0–100)' : 'Executive Health Briefing'}
+            <Activity className="w-3.5 h-3.5 text-[#2ED3C2]" />
+            {aiLang === 'sw' ? 'Muhtasari' : 'Business summary'}
           </button>
-          <button
+          {hasPermission('finance:read') && hasPermission('sales:read') && <button
             type="button"
-            onClick={() => {
-              setShowSim((s) => !s);
-              if (!showSim && !simResult) runSimulation();
-            }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-[#2ED3C2]/40 bg-white/5 text-white text-xs font-semibold hover:bg-white/10"
+            onClick={() => setShowSim((s) => !s)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#2ED3C2]/40 bg-white/5 text-white text-xs font-semibold hover:bg-white/10"
           >
             <Sliders className="w-3.5 h-3.5 text-[#2ED3C2]" />
-            {showSim ? 'Hide What-If Simulator' : 'What-If Simulator'}
-          </button>
+            {showSim ? 'Hide scenario' : 'What if?'}
+          </button>}
         </div>
       </div>
 
@@ -233,7 +323,7 @@ export const AiAssistantPage: React.FC = () => {
             <div>
               <h2 className="text-sm font-bold text-[#041527]">Interactive What-If Financial Scenario Simulator</h2>
               <p className="text-xs text-slate-500">
-                Test pricing, volume, cost-cutting, and stockout-recovery moves on your trailing 30-day actuals before executing.
+                Explore an illustrative scenario using recorded sales, costs and expenses from the last 30 days. Results are not a forecast; the model assumes price elasticity of -0.35.
               </p>
             </div>
             <button type="button" onClick={() => setShowSim(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100">
@@ -313,7 +403,7 @@ export const AiAssistantPage: React.FC = () => {
         <div className="lg:col-span-3 bg-white border border-slate-200 rounded-2xl p-4 flex flex-col gap-3">
           <button
             type="button"
-            onClick={startNewConversation}
+            onClick={() => { startNewConversation().catch((e: any) => setError(e.message || 'Could not start a conversation.')); }}
             className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#041527] text-[#2ED3C2] text-xs font-bold hover:bg-navy-800"
           >
             <Plus className="w-4 h-4" /> New Analysis Thread
@@ -358,7 +448,7 @@ export const AiAssistantPage: React.FC = () => {
           <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-bold text-navy-950">Ask in simple English or Kiswahili</span>
             <span className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 font-medium">
-              <Database className="w-3 h-3 text-teal-600" /> Zero-Hallucination SQL Grounding · Tenant Isolated
+              <Database className="w-3 h-3 text-teal-600" /> {aiLang === 'sw' ? 'Hutumia rekodi zinazoruhusiwa' : 'Uses records available to your role'}
             </span>
           </div>
 
@@ -420,18 +510,89 @@ export const AiAssistantPage: React.FC = () => {
                     )}
 
                     {m.role === 'assistant' && m.supporting_data?.chart?.data?.length > 0 && (
-                      <div className="p-3 rounded-xl bg-white border border-slate-200">
-                        <div className="text-[11px] font-bold text-navy-950 mb-2">{m.supporting_data.chart.title}</div>
-                        <div className="h-44">
+                      <div className="p-3.5 rounded-xl bg-white border border-slate-200">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <div className="text-[11px] font-bold text-navy-950">{m.supporting_data.chart.title}</div>
+                          <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-teal-50 text-teal-700">
+                            {m.supporting_data.chart.type === 'pie'
+                              ? (aiLang === 'sw' ? 'Mgawanyo' : 'Distribution')
+                              : m.supporting_data.chart.type === 'forecast'
+                                ? (aiLang === 'sw' ? 'Makadirio ya mauzo' : 'Sales estimate')
+                                : (aiLang === 'sw' ? 'Chati' : 'Chart')}
+                          </span>
+                        </div>
+                        <div className={m.supporting_data.chart.type === 'pie' ? 'h-56' : 'h-52'}>
                           <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={m.supporting_data.chart.data}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                              <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#64748b' }} />
-                              <YAxis tick={{ fontSize: 10, fill: '#64748b' }} />
-                              <Tooltip />
-                              <Bar dataKey="value" fill="#0D9488" radius={[6, 6, 0, 0]} />
-                            </BarChart>
+                            {m.supporting_data.chart.type === 'pie' ? (
+                              <PieChart>
+                                <Pie
+                                  data={m.supporting_data.chart.data}
+                                  dataKey="value"
+                                  nameKey="label"
+                                  cx="50%"
+                                  cy="50%"
+                                  innerRadius={44}
+                                  outerRadius={76}
+                                  paddingAngle={3}
+                                  stroke="#142b48"
+                                  isAnimationActive={false}
+                                >
+                                  {m.supporting_data.chart.data.map((_: any, idx: number) => (
+                                    <Cell key={idx} fill={PORTAL_CHART_COLORS[idx % PORTAL_CHART_COLORS.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip formatter={(val: any) => formatKes(Number(val))} />
+                                <Legend wrapperStyle={{ fontSize: 11 }} />
+                              </PieChart>
+                            ) : m.supporting_data.chart.type === 'forecast' ? (
+                              <AreaChart data={m.supporting_data.chart.data.map((point: any) => ({ ...point, predicted: point.is_forecast ? point.predicted : null, band: point.lower_80 != null && point.upper_80 != null ? [Number(point.lower_80), Number(point.upper_80)] : null }))}>
+                                <defs>
+                                  <linearGradient id={`fcBand-${m.id}`} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#2ED3C2" stopOpacity={0.35} />
+                                    <stop offset="95%" stopColor="#2ED3C2" stopOpacity={0.04} />
+                                  </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={(v) => String(v).slice(5)} />
+                                <YAxis tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={formatCompactAxis} />
+                                <Tooltip formatter={(val: any) => val == null ? '—' : Array.isArray(val) ? `${formatKesPrecise(val[0])} – ${formatKesPrecise(val[1])}` : formatKesPrecise(val)} />
+                                <Legend wrapperStyle={{ fontSize: 11 }} />
+                                <Area isAnimationActive={false} type="monotone" dataKey="band" name={aiLang === 'sw' ? 'Wigo wa makadirio' : 'Approximate range'} stroke="none" fill={`url(#fcBand-${m.id})`} />
+                                <Area isAnimationActive={false} type="monotone" dataKey="actual" name={aiLang === 'sw' ? 'Mauzo halisi' : 'Recorded sales'} stroke="#a6f7ff" strokeWidth={2.5} fill="none" connectNulls />
+                                <Area isAnimationActive={false} type="monotone" dataKey="predicted" name={aiLang === 'sw' ? 'Utabiri' : 'Forecast'} stroke="#69ddff" strokeWidth={2.5} strokeDasharray="5 3" fill="none" connectNulls />
+                              </AreaChart>
+                            ) : (
+                              <BarChart data={m.supporting_data.chart.data}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#64748b' }} />
+                                <YAxis tick={{ fontSize: 10, fill: '#64748b' }} />
+                                <Tooltip formatter={(val: any) => formatKes(Number(val))} />
+                                <Bar isAnimationActive={false} dataKey="value" fill="#69ddff" radius={[6, 6, 0, 0]} />
+                              </BarChart>
+                            )}
                           </ResponsiveContainer>
+                        </div>
+                        {m.supporting_data.chart.type === 'forecast' && <p className="mt-2 text-[10px] text-slate-400">{aiLang === 'sw' ? 'Wigo ni makadirio, si uwezekano uliothibitishwa; utabiri unaweza kukosea.' : 'The range is approximate, not a validated probability; forecasts can be wrong.'}</p>}
+                      </div>
+                    )}
+
+                    {m.role === 'assistant' && m.supporting_data?.calculations?.length > 0 && (
+                      <div className="p-3.5 rounded-xl bg-white border border-slate-200 space-y-2">
+                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-navy-950">
+                          <Calculator className="w-3.5 h-3.5 text-teal-600" />
+                          Calculations &amp; formulas
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {m.supporting_data.calculations.slice(0, 8).map((c: any, idx: number) => (
+                            <div key={idx} className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/80">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-bold text-navy-950">{c.metric}</span>
+                                <span className="text-[11px] font-extrabold text-teal-700">{c.formatted}</span>
+                              </div>
+                              <div className="text-[10px] font-mono text-slate-500 mt-0.5 break-all">{c.formula}</div>
+                              {c.interpretation && <div className="text-[10px] text-slate-600 mt-0.5">{c.interpretation}</div>}
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
@@ -467,13 +628,14 @@ export const AiAssistantPage: React.FC = () => {
                                 : 'bg-white text-slate-600 border-slate-200 hover:text-navy-950'
                             }`}
                           >
-                            <Volume2 className="w-3 h-3" /> {speakingId === m.id ? 'Speaking...' : 'Listen'}
+                            <Volume2 className="w-3 h-3" /> {speakingId === m.id ? (aiLang === 'sw' ? 'Inasoma...' : 'Speaking...') : (aiLang === 'sw' ? 'Sikiliza' : 'Listen')}
                           </button>
                           {m.id && !String(m.id).startsWith('tmp') && (
                             <>
                               <button
                                 type="button"
                                 onClick={() => rateMessage(m.id, 1)}
+                                aria-label={aiLang === 'sw' ? 'Jibu limenisaidia' : 'Helpful answer'}
                                 className={`p-1 rounded ${m.user_rating === 1 ? 'text-teal-600 bg-teal-50' : 'hover:text-slate-700'}`}
                               >
                                 <ThumbsUp className="w-3 h-3" />
@@ -481,6 +643,7 @@ export const AiAssistantPage: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => rateMessage(m.id, -1)}
+                                aria-label={aiLang === 'sw' ? 'Jibu halikunisaidia' : 'Not helpful'}
                                 className={`p-1 rounded ${m.user_rating === -1 ? 'text-rose-600 bg-rose-50' : 'hover:text-slate-700'}`}
                               >
                                 <ThumbsDown className="w-3 h-3" />
@@ -506,6 +669,7 @@ export const AiAssistantPage: React.FC = () => {
             className="p-4 border-t border-slate-100 flex items-center gap-2.5 bg-slate-50/50"
           >
             <input
+              aria-label={aiLang === 'sw' ? 'Swali lako' : 'Your question'}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={sending}
@@ -514,16 +678,23 @@ export const AiAssistantPage: React.FC = () => {
                   ? 'Uliza swali la biashara (mf. Kwa nini mauzo yalipungua? au Nikiongeza bei 8%?)...'
                   : 'Ask a business question (e.g. Give me my health briefing, or What if I cut expenses 10%?)...'
               }
-              className="flex-1 px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-teal-600"
+              className="flex-1 min-w-0 px-4 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-teal-600"
             />
+            <button type="button" onClick={toggleDictation} disabled={sending || !SpeechRecognition}
+              className="p-2.5 rounded-xl border border-slate-200 text-teal-600 disabled:opacity-50"
+              aria-label={listening ? (aiLang === 'sw' ? 'Simamisha kipaza sauti' : 'Stop microphone') : (aiLang === 'sw' ? 'Tumia sauti kuuliza' : 'Dictate a question')}
+              title={!SpeechRecognition ? 'Voice input is not supported by this browser' : 'Dictate a question'}>
+              {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            </button>
             <button
               type="submit"
               disabled={sending || !input.trim()}
               className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-[#041527] text-[#2ED3C2] text-sm font-bold hover:bg-navy-800 disabled:opacity-50"
             >
-              <Send className="w-4 h-4" /> {sending ? 'Analyzing...' : 'Ask AI'}
+              <Send className="w-4 h-4" /> <span className="hidden sm:inline">{sending ? (aiLang === 'sw' ? 'Inachambua...' : 'Analyzing...') : (aiLang === 'sw' ? 'Uliza' : 'Ask')}</span>
             </button>
           </form>
+          <p className="px-4 pb-3 text-[10px] text-slate-400">{aiLang === 'sw' ? 'Kuandika kwa sauti hutegemea kivinjari chako na ruhusa ya kipaza sauti.' : 'Voice input is provided by your browser and requires microphone permission.'}</p>
         </div>
       </div>
     </div>

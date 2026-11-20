@@ -79,6 +79,7 @@ services:
         condition: service_healthy
     environment:
       NODE_ENV: production
+      PORTAL_FEATURE_GATING_ENABLED: ${PORTAL_FEATURE_GATING_ENABLED:-false}
       HOST: 0.0.0.0
       PORT: 4000
       ENABLE_SWAGGER: ${ENABLE_SWAGGER:-false}

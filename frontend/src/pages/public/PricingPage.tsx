@@ -19,7 +19,7 @@ const PLAN_FEATURES: Record<string, string[]> = {
   ],
   growth: [
     'Up to 3 branches · up to 10 team users',
-    'Automated imports & weekly management reports',
+    'CSV / Excel imports & exportable reports',
     'Low-stock & operational alerts',
     'Basic demand & sales forecasts',
     'Customer CRM with consent tracking',
@@ -29,24 +29,24 @@ const PLAN_FEATURES: Record<string, string[]> = {
     'Advanced sales, demand & 30-day cash-flow forecasts',
     'Customer RFM segmentation & anomaly detection',
     'Full BizWave AI (English & Kiswahili + What-If Simulator)',
-    'BizWave Connect (SMS, WhatsApp, Voice & USSD ready)',
+    'Business discovery & customer consent records',
   ],
   enterprise: [
-    'Unlimited branches & custom role hierarchies',
+    'Up to 100 branches & role-based access',
     'Consolidated multi-branch analytics & custom KPIs',
-    'POS, ERP, accounting & channel API integrations',
-    'Dedicated Nairobi onboarding & SLA support',
+    'Branch-scoped access and team permissions',
+    'Plan and service information for reference',
   ],
 };
 
 const FAQS = [
   {
     q: 'Does BizWave handle or hold my customer payments?',
-    a: 'No. Your customers continue paying your existing M-Pesa Till, Paybill, Bank, or Cash directly. BizWave only records and analyses your operations to guide decisions — the only payments processed in BizWave are your BizWave subscription and optional add-on services.',
+    a: 'No. Your customers continue paying your existing M-Pesa Till, Paybill, Bank, or Cash directly. BizWave records and analyses your operations; online subscription and add-on payments are not available yet.',
   },
   {
     q: 'Can I start with Excel spreadsheets and upgrade later?',
-    a: 'Yes. Start on Starter with your current Excel or CSV sheets and upgrade to Growth, Intelligence, or Multi-Branch at any time without migrating data.',
+    a: 'You can start on Starter with CSV or Excel files. Online plan changes are not available yet; contact the administrator about plan options.',
   },
   {
     q: 'Who owns the data I upload into BizWave?',
@@ -54,7 +54,7 @@ const FAQS = [
   },
   {
     q: 'How are SMS, WhatsApp, Voice, and USSD billed?',
-    a: 'Communication channels in BizWave Connect are modular usage-based add-ons, so you only pay for the outreach minutes or messages your business actually uses.',
+    a: 'Outbound messaging and online add-on purchases are not connected yet. No messages are sent or charged through this release.',
   },
 ];
 
@@ -89,13 +89,13 @@ export const PricingPage: React.FC = () => {
             Simple Pricing Built for <span className="text-[#2ED3C2]">Kenyan SMEs.</span>
           </h1>
           <p className="mt-4 text-base text-slate-300 max-w-2xl mx-auto">
-            Pay only for the intelligence pillars and branches your business needs — zero transaction commissions on your sales.
+            Plan prices are shown for reference. Online plan changes and add-on purchases are not available yet.
           </p>
 
           <div className="mt-6 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#09223B] border border-[#2ED3C2]/30 text-xs font-medium text-slate-200">
             <ShieldCheck className="w-4 h-4 text-[#2ED3C2] shrink-0" />
             <span>
-              <strong className="text-white">Non-Custodial Guarantee:</strong> No customer payments pass through BizWave. Only BizWave subscriptions &amp; add-ons are billed.
+              <strong className="text-white">No online payments:</strong> BizWave does not process customer payments, and platform billing is not connected yet.
             </span>
           </div>
         </div>
@@ -153,7 +153,7 @@ export const PricingPage: React.FC = () => {
                       : 'bg-white/10 text-white hover:bg-[#2ED3C2] hover:text-[#041527]'
                   }`}
                 >
-                  {plan.code === 'enterprise' ? 'Request Multi-Branch Quote' : `Start with ${plan.name}`}
+                  {plan.code === 'enterprise' ? 'Contact us' : 'Create a Starter account'}
                 </Link>
               </div>
             </div>
@@ -176,7 +176,7 @@ export const PricingPage: React.FC = () => {
             <div>
               <h3 className="text-xs font-extrabold uppercase tracking-wider text-[#2ED3C2]">Usage-Based Add-Ons</h3>
               <p className="mt-2 text-xs text-slate-300 leading-relaxed">
-                Voice-agent minutes · SMS &amp; WhatsApp conversations · USSD transactions · Extra branches, data &amp; users
+                Potential additional services are shown for reference only; purchases and message delivery are not connected.
               </p>
             </div>
           </div>

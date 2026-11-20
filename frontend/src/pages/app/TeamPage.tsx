@@ -4,7 +4,7 @@ import { apiRequest } from '../../services/api';
 import { useAuth } from '../../stores/authStore';
 
 export const TeamPage: React.FC = () => {
-  const { branches, hasPermission } = useAuth();
+  const { branches, hasPermission, activeOrg } = useAuth();
   const [users, setUsers] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [invite, setInvite] = useState({ email: '', firstName: '', lastName: '', roleCode: 'branch_manager', branchIds: [] as string[] });
@@ -29,15 +29,16 @@ export const TeamPage: React.FC = () => {
     e.preventDefault();
     setErr('');
     setMsg('');
+    if (['branch_manager', 'staff_member'].includes(invite.roleCode) && !invite.branchIds.length) { setErr('Choose at least one branch for this team member.'); return; }
     try {
       const res = await apiRequest<{ invited: { email: string; roleCode: string; temporaryPassword?: string } }>(
         '/admin/users/invite',
         { method: 'POST', body: invite },
       );
       const pwNote = res.invited?.temporaryPassword
-        ? ` One-time temporary password (share securely and ask user to rotate immediately): ${res.invited.temporaryPassword}`
+        ? ` Initial password (shown once; share securely and ask them to change it in Settings): ${res.invited.temporaryPassword}`
         : ' Existing user granted access to this organization.';
-      setMsg(`Invited ${invite.email} as ${invite.roleCode.replace(/_/g, ' ')}.${pwNote}`);
+      setMsg(`Added ${invite.email} as ${invite.roleCode.replace(/_/g, ' ')}. No email was sent.${pwNote}`);
       setInvite({ email: '', firstName: '', lastName: '', roleCode: 'branch_manager', branchIds: [] });
       load();
     } catch (e: any) {
@@ -45,7 +46,7 @@ export const TeamPage: React.FC = () => {
     }
   };
 
-  const businessRoles = roles.filter((r) => r.scope === 'business');
+  const businessRoles = roles.filter((r) => r.scope === 'business' && (activeOrg?.roles?.includes('business_owner') || (r.permissions || []).every((p: string) => hasPermission(p))));
 
   return (
     <div className="space-y-6">
@@ -78,7 +79,7 @@ export const TeamPage: React.FC = () => {
               Invite User
             </button>
           </div>
-          {invite.roleCode === 'branch_manager' && branches.length > 0 && (
+          {['branch_manager', 'staff_member'].includes(invite.roleCode) && branches.length > 0 && (
             <div className="flex flex-wrap items-center gap-3 text-xs">
               <span className="font-semibold text-slate-600">Restrict to Branch(es):</span>
               {branches.map((b) => (
@@ -133,7 +134,7 @@ export const TeamPage: React.FC = () => {
                   ))}
                 </td>
                 <td className="py-2.5 text-slate-600">
-                  {u.assigned_branches?.length > 0 ? u.assigned_branches.join(', ') : 'All authorized branches'}
+                  {u.assigned_branches?.length > 0 ? u.assigned_branches.join(', ') : (u.role_codes || []).some((role: string) => ['branch_manager', 'staff_member'].includes(role)) ? 'No branches assigned' : 'All authorized branches'}
                 </td>
                 <td className="py-2.5">
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${u.mfa_enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>

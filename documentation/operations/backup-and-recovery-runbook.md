@@ -1,50 +1,32 @@
-# BizWave Backup, Recovery & Disaster Continuity Runbook
+# Backup and recovery runbook
 
-## 1. Recovery Objectives
-- **RPO (Recovery Point Objective)**: `<= 15 minutes` (with PostgreSQL WAL archiving / PITR enabled in production) or `<= 24 hours` (daily logical encrypted backups for starter deployments).
-- **RTO (Recovery Time Objective)**: `<= 60 minutes` for full database + application service restoration.
+Backups, offsite storage, encryption, WAL archiving, retention schedules and restoration drills are **operator responsibilities**. No recovery-point or recovery-time objective has been demonstrated by this release. Back up PostgreSQL, uploaded files and configuration/secrets, particularly `APP_ENCRYPTION_KEY` (stored separately from data). Restrict cross-tenant backup access. Test restores regularly.
 
----
+## Logical PostgreSQL backup
 
-## 2. Backup Architecture
+`infrastructure/scripts/backup-postgres.sh` uses `pg_dump` in custom format and creates a SHA-256 checksum. Files default to owner-only permissions. **The dump is plaintext unless `BACKUP_GPG_RECIPIENT` is set**; with GPG it is encrypted after an intermediate plaintext dump. Handle temporary files, secure storage and the GPG key appropriately. The script's local age-based pruning is not an offsite backup policy. The backup DB role must have the rights to capture all required tenant rows.
 
-| Component | Backup Mechanism | Frequency | Retention | Encryption |
-|---|---|---|---|---|
-| **PostgreSQL (`bizwave`)** | `infrastructure/scripts/backup-postgres.sh` (`pg_dump --format=custom --compress=9`) + SHA-256 checksum | Daily 02:00 EAT (`Africa/Nairobi`) | 30 days daily, 12 months monthly | GPG / KMS AES-256 |
-| **PostgreSQL WAL Logs** | `archive_mode = on` -> S3/GCS encrypted bucket (`pgBackRest` / `WAL-G`) | Continuous (15m max) | 14 days | Server-side KMS |
-| **Encryption Master Key** | Cloud KMS / Offline sealed break-glass vault (stored **separately** from DB backups) | On rotation | All active key versions | HSM / KMS |
-| **Redis** | AOF persistence (`appendonly yes`); queues are reconstructible from PostgreSQL job tables (`import_jobs`, `forecast_runs`, `scheduled_reports`) | Continuous | 7 days | Disk encryption |
-
----
-
-## 3. Executing an Ad-Hoc Backup
 ```bash
-export PGHOST=127.0.0.1
-export PGUSER=bizwave_owner
-export PGPASSWORD="<owner_password>"
-export BACKUP_DIR="/var/backups/bizwave"
-export BACKUP_GPG_RECIPIENT="ops@bizwave.co.ke" # optional for GPG encryption
-
+export PGHOST=127.0.0.1 PGDATABASE=bizwave PGUSER=bizwave_owner
+export BACKUP_DIR=/secure/backups/bizwave
+# Supply PGPASSWORD securely, or use a protected PostgreSQL password file.
+# Optional: BACKUP_GPG_RECIPIENT=your-backup-key-id
 ./infrastructure/scripts/backup-postgres.sh
 ```
 
----
+The production Compose database is internal, so arrange an approved container/host access method and verify it before relying on these generic host commands. Separately back up the uploads volume and encryption secrets.
 
-## 4. Restoration & Verification Procedure (Monthly Fire Drill)
+## Restore safely into a new isolated database
 
-1. **Download Backup & Checksum** from off-site encrypted bucket.
-2. **Decrypt** (if GPG-encrypted):
+1. Verify the backup checksum; for a GPG-encrypted backup verify the encrypted file's checksum first, then decrypt to a protected temporary file. Keep the key separate.
+2. Choose a **new** database name. The restore script validates the name and runs `CREATE DATABASE`; it refuses existing targets and never drops or overwrites them. It restores with `--single-transaction` and fails if `fn_verify_audit_chain()` is invalid. A failed attempt may leave its newly created database for diagnosis.
+
    ```bash
-   gpg --decrypt bizwave_20261116T020000Z.dump.gpg > bizwave_restore.dump
+   PGUSER=postgres PGHOST=127.0.0.1 \
+     ./infrastructure/scripts/restore-postgres.sh /secure/backup/bizwave_....dump bizwave_restore_review_001
    ```
-3. **Run Restore & Integrity Script** into an isolated staging database first:
-   ```bash
-   PGUSER=postgres PGPASSWORD="<admin_pw>" \
-     ./infrastructure/scripts/restore-postgres.sh bizwave_restore.dump bizwave_restore_verify
-   ```
-4. **Mandatory Post-Restore Validations**:
-   - Confirm `fn_verify_audit_log_chain()` returns `is_valid = true` and expected record count.
-   - Verify non-superuser `bizwave_app` still has `NOBYPASSRLS` (`SELECT rolbypassrls FROM pg_roles WHERE rolname = 'bizwave_app'` -> `f`).
-   - Run `database/tests/test_database_integrity.sql` as `bizwave_app`.
-   - Refresh materialized view: `REFRESH MATERIALIZED VIEW CONCURRENTLY mv_tenant_daily_analytics;`.
-5. **Production Cutover**: Put reverse proxy into maintenance mode (`503`), stop NestJS workers, rename databases atomically, start services, and verify `/api/v1/admin/system-health`.
+
+3. Compare tenant, sales, upload and audit counts with the source backup; review data and restore logs. The backup uses `--no-owner`, so provision the appropriate roles and apply `infrastructure/postgres/grant-runtime-access.sql` to the restored target before testing the restricted app role. Validate RLS, branch access and application health in an isolated environment.
+4. Plan an operator-approved production cutover, including maintenance, connection draining, correct credentials, uploads, DNS, rollback and post-cutover checks. Do not run restore or integration fixture tests against an existing live database.
+
+The local sandbox verification exercised a logical dump, refusal of an existing and invalid target, restore to a separate new database and audit-chain verification. This is not a tested offsite, encrypted or full Docker disaster-recovery exercise.

@@ -17,9 +17,10 @@ import {
   verifyPassword,
 } from '../../database/crypto.util';
 import { envConfig } from '../../config/env.config';
+import { effectivePortalFeatures } from '../../common/portal-features';
 
 export const RegisterSchema = z.object({
-  businessName: z.string().min(2).max(160),
+  businessName: z.string().trim().min(2).max(160),
   businessEmail: z.string().email(),
   phoneNumber: z.string().min(7).max(32).optional(),
   industryCode: z
@@ -28,8 +29,8 @@ export const RegisterSchema = z.object({
   businessSize: z.enum(['micro', 'small', 'medium', 'enterprise']).default('small'),
   countryCode: z.string().length(2).default('KE'),
   preferredLanguage: z.enum(['en', 'sw']).default('en'),
-  firstName: z.string().min(1).max(100),
-  lastName: z.string().min(1).max(100),
+  firstName: z.string().trim().min(1).max(100),
+  lastName: z.string().trim().min(1).max(100),
   email: z.string().email(),
   password: z
     .string()
@@ -61,17 +62,11 @@ export class AuthService {
       `SELECT t.id, t.name, t.slug, t.display_name, t.industry_code, t.business_size,
               t.currency_code, t.timezone, t.preferred_language, t.logo_url, t.brand_color,
               t.onboarding_completed, t.onboarding_step,
-              ARRAY_AGG(DISTINCT r.code) AS roles,
-              COALESCE(
-                (SELECT sp.code FROM subscriptions s
-                 JOIN subscription_plans sp ON sp.id = s.plan_id
-                 WHERE s.tenant_id = t.id AND s.status IN ('active','trialing')
-                 ORDER BY s.created_at DESC LIMIT 1), 'starter'
-              ) AS plan_code
+              ARRAY_AGG(DISTINCT r.code) AS roles
        FROM user_roles ur
        JOIN roles r ON r.id = ur.role_id
        JOIN tenants t ON t.id = ur.tenant_id
-       WHERE ur.user_id = $1 AND ur.is_active = TRUE AND t.status = 'active'
+       WHERE ur.user_id = $1 AND ur.is_active = TRUE AND (ur.expires_at IS NULL OR ur.expires_at > NOW()) AND t.status = 'active'
        GROUP BY t.id
        ORDER BY t.created_at ASC`,
       [userId],
@@ -84,20 +79,22 @@ export class AuthService {
          FROM user_roles ur
          JOIN role_permissions rp ON rp.role_id = ur.role_id
          JOIN permissions p ON p.id = rp.permission_id
-         WHERE ur.user_id = $1 AND ur.tenant_id = $2 AND ur.is_active = TRUE`,
+         WHERE ur.user_id = $1 AND ur.tenant_id = $2 AND ur.is_active = TRUE AND (ur.expires_at IS NULL OR ur.expires_at > NOW())`,
         [userId, org.id],
       );
-      const features = await this.db.query(
-        `SELECT pf.feature_code
-         FROM subscriptions s
-         JOIN plan_features pf ON pf.plan_id = s.plan_id
-         WHERE s.tenant_id = $1 AND s.status IN ('active','trialing') AND pf.is_enabled = TRUE`,
-        [org.id],
-      );
+      // Subscription tables are RLS protected; resolve each under its tenant context.
+      const subscription = await this.db.withTenant(org.id, async (client) => {
+        const plan = await client.query(`SELECT sp.code, s.plan_id FROM subscriptions s
+          JOIN subscription_plans sp ON sp.id=s.plan_id
+          WHERE s.tenant_id=$1 AND s.status IN ('active','trialing') ORDER BY s.created_at DESC LIMIT 1`, [org.id]);
+        const features = plan.rows[0] ? await client.query(`SELECT feature_code FROM plan_features WHERE plan_id=$1 AND is_enabled=TRUE`, [plan.rows[0].plan_id]) : { rows: [] };
+        return { planCode: plan.rows[0]?.code || 'starter', features: features.rows.map((f) => f.feature_code) };
+      });
       orgs.push({
         ...org,
+        plan_code: subscription.planCode,
         permissions: perms.rows.map((p) => p.code),
-        enabledFeatures: features.rows.map((f) => f.feature_code),
+        enabledFeatures: effectivePortalFeatures(subscription.features),
       });
     }
     return orgs;
@@ -543,6 +540,22 @@ export class AuthService {
       row.user_id,
     ]);
     return { message: 'Password updated successfully. Please sign in with your new password.' };
+  }
+
+  async changePassword(userId: string, sessionId: string, currentPassword: string, newPassword: string) {
+    const policy = z.string().min(8).max(128).regex(/[A-Z]/).regex(/[0-9]/);
+    if (!policy.safeParse(newPassword).success) throw new BadRequestException('New password must have 8–128 characters, an uppercase letter and a number.');
+    if (!currentPassword || currentPassword === newPassword) throw new BadRequestException('Enter your current password and choose a different new password.');
+    const row = await this.db.query(`SELECT password_hash, email FROM users WHERE id=$1`, [userId]);
+    if (!row.rowCount || !(await verifyPassword(row.rows[0].password_hash, currentPassword))) throw new UnauthorizedException('Current password is incorrect.');
+    const hash = await hashPassword(newPassword);
+    await this.db.withSystemTransaction(async (client) => {
+      await client.query(`UPDATE users SET password_hash=$1 WHERE id=$2`, [hash, userId]);
+      await client.query(`UPDATE user_sessions SET revoked_at=NOW() WHERE user_id=$1 AND id<>$2 AND revoked_at IS NULL`, [userId, sessionId]);
+      await client.query(`UPDATE password_reset_tokens SET used_at=NOW() WHERE user_id=$1 AND used_at IS NULL`, [userId]);
+    });
+    await this.db.appendAuditLog({ actorUserId: userId, actorEmail: row.rows[0].email, action: 'auth.password_changed', resourceType: 'user', resourceId: userId });
+    return { changed: true, message: 'Password changed. Other sessions were signed out.' };
   }
 
   async setupMfa(userId: string, email: string) {

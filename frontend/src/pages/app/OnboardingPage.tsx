@@ -7,7 +7,9 @@ import { useAuth } from '../../stores/authStore';
 const BRAND_COLORS = ['#0D9488', '#0F766E', '#1D4ED8', '#D97706', '#7C3AED', '#BE123C', '#041527'];
 
 export const OnboardingPage: React.FC = () => {
-  const { activeOrg, branches, refreshSession } = useAuth();
+  const { activeOrg, branches, refreshSession, language, setLanguage } = useAuth();
+  const tr = (en: string, sw: string) => language === 'sw' ? sw : en;
+  const industryName = (code: string, fallback: string) => language === 'sw' ? ({ retail: 'Maduka', restaurant: 'Migahawa', wholesale: 'Jumla na usambazaji', salon: 'Saluni na afya', professional_services: 'Huduma za kitaalamu', general_sme: 'Biashara nyingine' } as Record<string, string>)[code] || fallback : fallback;
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [templates, setTemplates] = useState<any[]>([]);
@@ -21,7 +23,6 @@ export const OnboardingPage: React.FC = () => {
     brandColor: activeOrg?.brand_color || '#0D9488',
   });
   const [branchForm, setBranchForm] = useState({ code: '', name: '', city: 'Nairobi', address: '' });
-  const [inviteForm, setInviteForm] = useState({ email: '', firstName: '', lastName: '', roleCode: 'business_manager' });
   const [statusMsg, setStatusMsg] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -56,19 +57,7 @@ export const OnboardingPage: React.FC = () => {
       await apiRequest('/branches', { method: 'POST', body: branchForm });
       setBranchForm({ code: '', name: '', city: 'Nairobi', address: '' });
       await refreshSession();
-      setStatusMsg('Branch added successfully.');
-    } catch (err: any) {
-      setStatusMsg(err.message);
-    }
-  };
-
-  const inviteTeammate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setStatusMsg('');
-    try {
-      await apiRequest('/admin/users/invite', { method: 'POST', body: inviteForm });
-      setInviteForm({ email: '', firstName: '', lastName: '', roleCode: 'business_manager' });
-      setStatusMsg('Employee invited with assigned role.');
+      setStatusMsg(tr('Branch added.', 'Tawi limeongezwa.'));
     } catch (err: any) {
       setStatusMsg(err.message);
     }
@@ -84,6 +73,8 @@ export const OnboardingPage: React.FC = () => {
       });
       await refreshSession();
       navigate('/app/dashboard');
+    } catch (err: any) {
+      setStatusMsg(err.message || tr('Could not complete setup. Please try again.', 'Imeshindikana kukamilisha usanidi. Jaribu tena.'));
     } finally {
       setSaving(false);
     }
@@ -92,20 +83,20 @@ export const OnboardingPage: React.FC = () => {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
-        <div className="text-xs font-semibold uppercase tracking-wider text-teal-600">Guided Business Onboarding</div>
-        <h1 className="mt-1 text-2xl font-extrabold text-navy-950">Configure {activeOrg?.display_name}</h1>
+        <div className="text-xs font-semibold uppercase tracking-wider text-teal-600">{tr('BUSINESS SETUP', 'USANIDI WA BIASHARA')}</div>
+        <h1 className="mt-1 text-2xl font-extrabold text-navy-950">{tr('Set up', 'Sanidi')} {activeOrg?.display_name}</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Personalize your industry template, branches, team roles, and data sources.
+          {tr('Set up your business, branches, team and records.', 'Sanidi biashara, matawi, timu na rekodi zako.')}
         </p>
       </div>
 
       {/* Stepper */}
       <div className="grid grid-cols-4 gap-2">
         {[
-          { n: 1, label: 'Profile & Industry' },
-          { n: 2, label: 'Branches & Team' },
-          { n: 3, label: 'Data Sources' },
-          { n: 4, label: 'Launch Dashboard' },
+          { n: 1, label: tr('Business profile', 'Wasifu wa biashara') },
+          { n: 2, label: tr('Branches & team', 'Matawi na timu') },
+          { n: 3, label: tr('Records', 'Rekodi') },
+          { n: 4, label: tr('Finish', 'Maliza') },
         ].map((s) => (
           <button
             key={s.n}
@@ -119,7 +110,7 @@ export const OnboardingPage: React.FC = () => {
                   : 'bg-white text-slate-500 border-slate-200'
             }`}
           >
-            <div className="text-[10px] opacity-75">Step {s.n}/4</div>
+            <div className="text-[10px] opacity-75">{tr('Step', 'Hatua')} {s.n}/4</div>
             <div className="mt-0.5 truncate">{s.label}</div>
           </button>
         ))}
@@ -132,11 +123,11 @@ export const OnboardingPage: React.FC = () => {
       {step === 1 && (
         <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-5">
           <div className="flex items-center gap-2 font-bold text-navy-950">
-            <Palette className="w-4 h-4 text-teal-600" /> Business Profile, Industry &amp; Brand Identity
+            <Palette className="w-4 h-4 text-teal-600" /> {tr('Your business profile', 'Wasifu wa biashara yako')}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Display Name</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">{tr('Display Name', 'Jina la biashara')}</label>
               <input
                 value={orgForm.displayName}
                 onChange={(e) => setOrgForm({ ...orgForm, displayName: e.target.value })}
@@ -144,7 +135,7 @@ export const OnboardingPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Industry Template</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">{tr('Industry Template', 'Aina ya biashara')}</label>
               <select
                 value={orgForm.industryCode}
                 onChange={(e) => setOrgForm({ ...orgForm, industryCode: e.target.value })}
@@ -153,16 +144,16 @@ export const OnboardingPage: React.FC = () => {
                 {templates.length > 0 ? (
                   templates.map((tpl) => (
                     <option key={tpl.code} value={tpl.code}>
-                      {tpl.name}
+                      {industryName(tpl.code, tpl.name)}
                     </option>
                   ))
                 ) : (
-                  <option value="retail">Retail &amp; Supermarkets</option>
+                  <option value="retail">{tr('Retail & shops', 'Maduka')}</option>
                 )}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Currency &amp; Timezone</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">{tr('Currency & Timezone', 'Sarafu na saa za eneo')}</label>
               <input
                 disabled
                 value={`${orgForm.currencyCode} · ${orgForm.timezone}`}
@@ -170,10 +161,10 @@ export const OnboardingPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Preferred Language</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">{tr('Preferred Language', 'Lugha inayopendelewa')}</label>
               <select
                 value={orgForm.preferredLanguage}
-                onChange={(e) => setOrgForm({ ...orgForm, preferredLanguage: e.target.value as 'en' | 'sw' })}
+                onChange={(e) => { const next = e.target.value as 'en' | 'sw'; setOrgForm({ ...orgForm, preferredLanguage: next }); setLanguage(next); }}
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white"
               >
                 <option value="en">English</option>
@@ -183,13 +174,15 @@ export const OnboardingPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-2">Workspace Brand Accent Color</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-2">{tr('Workspace Brand Accent Color', 'Rangi ya biashara')}</label>
             <div className="flex items-center gap-2.5">
               {BRAND_COLORS.map((c) => (
                 <button
                   key={c}
                   type="button"
                   onClick={() => setOrgForm({ ...orgForm, brandColor: c })}
+                  aria-label={`${tr('Choose color', 'Chagua rangi')} ${c}`}
+                  aria-pressed={orgForm.brandColor === c}
                   style={{ backgroundColor: c }}
                   className={`w-8 h-8 rounded-full border-2 ${orgForm.brandColor === c ? 'border-navy-950 scale-110' : 'border-white'}`}
                 />
@@ -204,7 +197,7 @@ export const OnboardingPage: React.FC = () => {
               disabled={saving}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-navy-950 text-white text-sm font-semibold hover:bg-navy-800"
             >
-              {saving ? 'Saving...' : 'Save & Continue'} <ArrowRight className="w-4 h-4" />
+              {saving ? tr('Saving…', 'Inahifadhi…') : tr('Save & continue', 'Hifadhi na endelea')} <ArrowRight className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -214,83 +207,45 @@ export const OnboardingPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <form onSubmit={addBranch} className="bg-white border border-slate-200 rounded-2xl p-6 space-y-3">
             <div className="flex items-center gap-2 font-bold text-navy-950 text-sm">
-              <Building2 className="w-4 h-4 text-teal-600" /> Add Another Branch ({branches.length} active)
+              <Building2 className="w-4 h-4 text-teal-600" /> {tr('Add another branch', 'Ongeza tawi')} ({branches.length})
             </div>
             <input
               required
-              placeholder="Branch Code (e.g. KLM-02)"
+              aria-label={tr('Branch code', 'Msimbo wa tawi')} placeholder={tr('Branch code (e.g. KLM-02)', 'Msimbo wa tawi (mf. KLM-02)')}
               value={branchForm.code}
               onChange={(e) => setBranchForm({ ...branchForm, code: e.target.value })}
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg"
             />
             <input
               required
-              placeholder="Branch Name (e.g. Kilimani Express)"
+              aria-label={tr('Branch name', 'Jina la tawi')} placeholder={tr('Branch name', 'Jina la tawi')}
               value={branchForm.name}
               onChange={(e) => setBranchForm({ ...branchForm, name: e.target.value })}
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg"
             />
             <input
-              placeholder="Street Address"
+              aria-label={tr('Street address', 'Anwani')} placeholder={tr('Street address', 'Anwani')}
               value={branchForm.address}
               onChange={(e) => setBranchForm({ ...branchForm, address: e.target.value })}
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg"
             />
             <button type="submit" className="w-full py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">
-              Add Branch
+              {tr('Add branch', 'Ongeza tawi')}
             </button>
           </form>
 
-          <form onSubmit={inviteTeammate} className="bg-white border border-slate-200 rounded-2xl p-6 space-y-3">
-            <div className="flex items-center gap-2 font-bold text-navy-950 text-sm">
-              <Users className="w-4 h-4 text-teal-600" /> Invite an Employee
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                required
-                placeholder="First name"
-                value={inviteForm.firstName}
-                onChange={(e) => setInviteForm({ ...inviteForm, firstName: e.target.value })}
-                className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
-              />
-              <input
-                required
-                placeholder="Last name"
-                value={inviteForm.lastName}
-                onChange={(e) => setInviteForm({ ...inviteForm, lastName: e.target.value })}
-                className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
-              />
-            </div>
-            <input
-              type="email"
-              required
-              placeholder="employee@company.co.ke"
-              value={inviteForm.email}
-              onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg"
-            />
-            <select
-              value={inviteForm.roleCode}
-              onChange={(e) => setInviteForm({ ...inviteForm, roleCode: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white"
-            >
-              <option value="business_manager">Business Manager</option>
-              <option value="branch_manager">Branch Manager</option>
-              <option value="finance_officer">Finance Officer</option>
-              <option value="inventory_manager">Inventory Manager</option>
-              <option value="customer_service_agent">Customer Service Agent</option>
-            </select>
-            <button type="submit" className="w-full py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">
-              Send Role Invite
-            </button>
-          </form>
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-3">
+            <div className="flex items-center gap-2 font-bold text-navy-950 text-sm"><Users className="w-4 h-4 text-teal-600" /> {tr('Add your team', 'Ongeza timu yako')}</div>
+            <p className="text-sm text-slate-600">{tr('Give each person their own account and choose what they can access. You can do this now or later.', 'Mpe kila mtu akaunti yake na uchague taarifa anazoweza kuona. Unaweza kufanya hivi sasa au baadaye.')}</p>
+            <button type="button" onClick={() => navigate('/app/team')} className="w-full py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">{tr('Open team settings', 'Fungua mipangilio ya timu')}</button>
+          </div>
 
           <div className="md:col-span-2 flex justify-between">
             <button type="button" onClick={() => setStep(1)} className="px-4 py-2 text-xs font-semibold border border-slate-200 rounded-lg">
-              Back
+              {tr('Back', 'Rudi')}
             </button>
             <button type="button" onClick={() => setStep(3)} className="px-5 py-2.5 rounded-xl bg-navy-950 text-white text-sm font-semibold">
-              Continue to Data Import →
+              {tr('Continue to records', 'Endelea kwenye rekodi')} →
             </button>
           </div>
         </div>
@@ -299,10 +254,10 @@ export const OnboardingPage: React.FC = () => {
       {step === 3 && (
         <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
           <div className="flex items-center gap-2 font-bold text-navy-950">
-            <Upload className="w-4 h-4 text-teal-600" /> Import Initial Business Records
+            <Upload className="w-4 h-4 text-teal-600" /> {tr('Bring in your records', 'Weka rekodi zako')}
           </div>
           <p className="text-sm text-slate-600">
-            Start with CSV or Excel spreadsheets of your sales, expenses, products, or customers. BizWave validates every single row before committing so no errors go unnoticed.
+            {tr('Upload a CSV or Excel file with sales, expenses, products or customers. Review any errors before saving.', 'Pakia faili ya CSV au Excel ya mauzo, matumizi, bidhaa au wateja. Kagua makosa kabla ya kuhifadhi.')}
           </p>
           <div className="flex flex-wrap gap-3">
             <button
@@ -310,14 +265,14 @@ export const OnboardingPage: React.FC = () => {
               onClick={() => navigate('/app/analytics?tab=imports')}
               className="px-5 py-2.5 rounded-xl bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700"
             >
-              Open Spreadsheet Import Wizard
+              {tr('Open file import', 'Fungua upakiaji wa faili')}
             </button>
             <button
               type="button"
               onClick={() => setStep(4)}
               className="px-5 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-navy-950 hover:bg-slate-50"
             >
-              Skip for Now &amp; Review Setup →
+              {tr('Skip for now', 'Ruka kwa sasa')} →
             </button>
           </div>
         </div>
@@ -326,10 +281,10 @@ export const OnboardingPage: React.FC = () => {
       {step === 4 && (
         <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center space-y-4">
           <CheckCircle2 className="w-12 h-12 text-teal-600 mx-auto" />
-          <h2 className="text-xl font-bold text-navy-950">Your Personalized Workspace Is Ready</h2>
+          <h2 className="text-xl font-bold text-navy-950">{tr('Your workspace is ready', 'Nafasi yako iko tayari')}</h2>
           <p className="text-sm text-slate-600 max-w-md mx-auto">
-            Industry template: <strong className="capitalize">{orgForm.industryCode.replace('_', ' ')}</strong> · Currency:{' '}
-            <strong>{orgForm.currencyCode}</strong> · Branches: <strong>{branches.length}</strong>.
+            {tr('Business type', 'Aina ya biashara')}: <strong className="capitalize">{industryName(orgForm.industryCode, orgForm.industryCode.replace('_', ' '))}</strong> · {tr('Currency', 'Sarafu')}:{' '}
+            <strong>{orgForm.currencyCode}</strong> · {tr('Branches', 'Matawi')}: <strong>{branches.length}</strong>.
           </p>
           <button
             type="button"
@@ -337,7 +292,7 @@ export const OnboardingPage: React.FC = () => {
             disabled={saving}
             className="px-6 py-3 rounded-xl bg-navy-950 text-white text-sm font-semibold hover:bg-navy-800"
           >
-            {saving ? 'Finalizing...' : 'Launch Personalized Dashboard'}
+            {saving ? tr('Finishing…', 'Inamalizia…') : tr('Open dashboard', 'Fungua muhtasari')}
           </button>
         </div>
       )}

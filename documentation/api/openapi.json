@@ -1,1 +1,1952 @@
-{"openapi":"3.0.0","paths":{"/api/v1/auth/register":{"post":{"operationId":"AuthController_register","parameters":[],"responses":{"201":{"description":""}},"tags":["Authentication"]}},"/api/v1/auth/login":{"post":{"operationId":"AuthController_login","parameters":[],"responses":{"201":{"description":""}},"tags":["Authentication"]}},"/api/v1/auth/refresh":{"post":{"operationId":"AuthController_refresh","parameters":[],"responses":{"201":{"description":""}},"tags":["Authentication"]}},"/api/v1/auth/logout":{"post":{"operationId":"AuthController_logout","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Authentication"]}},"/api/v1/auth/forgot-password":{"post":{"operationId":"AuthController_forgotPassword","parameters":[],"responses":{"201":{"description":""}},"tags":["Authentication"]}},"/api/v1/auth/reset-password":{"post":{"operationId":"AuthController_resetPassword","parameters":[],"responses":{"201":{"description":""}},"tags":["Authentication"]}},"/api/v1/auth/me":{"get":{"operationId":"AuthController_me","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Authentication"]}},"/api/v1/auth/mfa/setup":{"post":{"operationId":"AuthController_setupMfa","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Authentication"]}},"/api/v1/auth/mfa/verify":{"post":{"operationId":"AuthController_verifyMfa","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Authentication"]}},"/api/v1/auth/sessions":{"get":{"operationId":"AuthController_sessions","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Authentication"]}},"/api/v1/auth/sessions/{id}":{"delete":{"operationId":"AuthController_revokeSession","parameters":[{"name":"id","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Authentication"]}},"/api/v1/organizations/industry-templates":{"get":{"operationId":"TenantsController_getIndustryTemplates","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Organizations"]}},"/api/v1/organizations":{"get":{"operationId":"TenantsController_listUserOrganizations","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Organizations"]}},"/api/v1/organizations/current":{"get":{"operationId":"TenantsController_getCurrentOrg","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Organizations"]}},"/api/v1/organizations/{id}":{"get":{"operationId":"TenantsController_getById","parameters":[{"name":"id","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Organizations"]},"patch":{"operationId":"TenantsController_updateOrg","parameters":[{"name":"id","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Organizations"]}},"/api/v1/branches":{"get":{"operationId":"BranchesController_list","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Branches"]},"post":{"operationId":"BranchesController_create","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Branches"]}},"/api/v1/branches/{id}":{"patch":{"operationId":"BranchesController_update","parameters":[{"name":"id","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Branches"]},"delete":{"operationId":"BranchesController_archive","parameters":[{"name":"id","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Branches"]}},"/api/v1/admin/users":{"get":{"operationId":"UsersRolesController_listUsers","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Team & Roles"]}},"/api/v1/admin/roles":{"get":{"operationId":"UsersRolesController_listRoles","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Team & Roles"]}},"/api/v1/admin/users/invite":{"post":{"operationId":"UsersRolesController_inviteUser","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Team & Roles"]}},"/api/v1/admin/users/{userId}/role":{"patch":{"operationId":"UsersRolesController_updateRole","parameters":[{"name":"userId","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Team & Roles"]}},"/api/v1/data-sources":{"get":{"operationId":"ImportsController_listDataSources","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Data Sources & Imports"]},"post":{"operationId":"ImportsController_createDataSource","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Data Sources & Imports"]}},"/api/v1/imports":{"get":{"operationId":"ImportsController_listImports","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Data Sources & Imports"]},"post":{"operationId":"ImportsController_uploadImport","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Data Sources & Imports"]}},"/api/v1/imports/{id}":{"get":{"operationId":"ImportsController_getImport","parameters":[{"name":"id","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Data Sources & Imports"]}},"/api/v1/imports/{id}/validate":{"post":{"operationId":"ImportsController_validateImport","parameters":[{"name":"id","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Data Sources & Imports"]}},"/api/v1/imports/{id}/commit":{"post":{"operationId":"ImportsController_commitImport","parameters":[{"name":"id","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Data Sources & Imports"]}},"/api/v1/sales":{"get":{"operationId":"SalesController_list","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Sales"]},"post":{"operationId":"SalesController_create","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Sales"]}},"/api/v1/sales/{id}/return":{"post":{"operationId":"SalesController_reverseSale","parameters":[{"name":"id","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Sales"]}},"/api/v1/inventory":{"get":{"operationId":"InventoryController_getStockStatus","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Inventory & Products"]}},"/api/v1/inventory/adjustments":{"post":{"operationId":"InventoryController_recordAdjustment","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Inventory & Products"]}},"/api/v1/finance/overview":{"get":{"operationId":"FinanceController_overview","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Finance & M-Pesa Reconciliation"]}},"/api/v1/finance/expenses":{"post":{"operationId":"FinanceController_createExpense","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Finance & M-Pesa Reconciliation"]}},"/api/v1/finance/reconcile/{txId}":{"post":{"operationId":"FinanceController_reconcileCashTransaction","parameters":[{"name":"txId","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Finance & M-Pesa Reconciliation"]}},"/api/v1/customers":{"get":{"operationId":"CustomersController_list","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Customers & Kenya DPA 2019 Compliance"]},"post":{"operationId":"CustomersController_create","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Customers & Kenya DPA 2019 Compliance"]}},"/api/v1/customers/{id}/consents":{"patch":{"operationId":"CustomersController_updateConsent","parameters":[{"name":"id","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Customers & Kenya DPA 2019 Compliance"]}},"/api/v1/customers/{id}/dpa-export":{"get":{"operationId":"CustomersController_dpaExport","parameters":[{"name":"id","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Customers & Kenya DPA 2019 Compliance"]}},"/api/v1/customers/{id}/deletion-request":{"post":{"operationId":"CustomersController_requestDeletion","parameters":[{"name":"id","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Customers & Kenya DPA 2019 Compliance"]}},"/api/v1/analytics/overview":{"get":{"operationId":"AnalyticsController_overview","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Analytics & KPI Engine"]}},"/api/v1/analytics/sales":{"get":{"operationId":"AnalyticsController_salesAnalytics","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Analytics & KPI Engine"]}},"/api/v1/analytics/products":{"get":{"operationId":"AnalyticsController_productAnalytics","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Analytics & KPI Engine"]}},"/api/v1/analytics/customers":{"get":{"operationId":"AnalyticsController_customerAnalytics","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Analytics & KPI Engine"]}},"/api/v1/analytics/expenses":{"get":{"operationId":"AnalyticsController_expenseAnalytics","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Analytics & KPI Engine"]}},"/api/v1/analytics/inventory":{"get":{"operationId":"AnalyticsController_inventoryAnalytics","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Analytics & KPI Engine"]}},"/api/v1/analytics/search":{"get":{"operationId":"AnalyticsController_globalSearch","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Analytics & KPI Engine"]}},"/api/v1/reports":{"get":{"operationId":"ReportsController_list","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Reporting"]}},"/api/v1/reports/generate":{"post":{"operationId":"ReportsController_generate","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Reporting"]}},"/api/v1/reports/export":{"get":{"operationId":"ReportsController_exportCsv","parameters":[{"name":"reportType","required":true,"in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Reporting"]}},"/api/v1/reports/schedule":{"post":{"operationId":"ReportsController_scheduleReport","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Reporting"]}},"/api/v1/forecasts":{"get":{"operationId":"ForecastingController_listForecasts","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Forecasting & Anomaly Detection (BizWave Predict)"]},"post":{"operationId":"ForecastingController_createForecast","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Forecasting & Anomaly Detection (BizWave Predict)"]}},"/api/v1/forecasts/{id}":{"get":{"operationId":"ForecastingController_getForecast","parameters":[{"name":"id","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Forecasting & Anomaly Detection (BizWave Predict)"]}},"/api/v1/forecasts/anomalies/scan":{"post":{"operationId":"ForecastingController_scanAnomalies","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Forecasting & Anomaly Detection (BizWave Predict)"]}},"/api/v1/forecasts/segmentation/rfm":{"get":{"operationId":"ForecastingController_rfmSegmentation","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Forecasting & Anomaly Detection (BizWave Predict)"]}},"/api/v1/ai/conversations":{"get":{"operationId":"AiController_listConversations","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["BizWave AI Assistant"]},"post":{"operationId":"AiController_createConversation","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["BizWave AI Assistant"]}},"/api/v1/ai/conversations/{id}/messages":{"get":{"operationId":"AiController_listMessages","parameters":[{"name":"id","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["BizWave AI Assistant"]},"post":{"operationId":"AiController_sendMessage","parameters":[{"name":"id","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["BizWave AI Assistant"]}},"/api/v1/ai/messages/{messageId}/feedback":{"post":{"operationId":"AiController_feedback","parameters":[{"name":"messageId","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["BizWave AI Assistant"]}},"/api/v1/communications/overview":{"get":{"operationId":"CommunicationsController_overview","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["BizWave Connect (Customer Communications)"]}},"/api/v1/communications/channels/configure":{"post":{"operationId":"CommunicationsController_configureChannel","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["BizWave Connect (Customer Communications)"]}},"/api/v1/communications/templates":{"post":{"operationId":"CommunicationsController_createTemplate","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["BizWave Connect (Customer Communications)"]}},"/api/v1/communications/campaigns":{"get":{"operationId":"CommunicationsController_listCampaigns","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["BizWave Connect (Customer Communications)"]},"post":{"operationId":"CommunicationsController_createAndLaunchCampaign","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["BizWave Connect (Customer Communications)"]}},"/api/v1/communications/messages":{"post":{"operationId":"CommunicationsController_sendDirectMessage","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["BizWave Connect (Customer Communications)"]}},"/api/v1/communications/reports":{"get":{"operationId":"CommunicationsController_deliveryReports","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["BizWave Connect (Customer Communications)"]}},"/api/v1/communications/webhooks/{provider}":{"post":{"operationId":"CommunicationsController_receiveWebhook","parameters":[{"name":"provider","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["BizWave Connect (Customer Communications)"]}},"/api/v1/subscriptions/plans":{"get":{"operationId":"SubscriptionsController_publicPlans","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Subscriptions & Billing"]}},"/api/v1/subscriptions":{"get":{"operationId":"SubscriptionsController_currentSubscription","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Subscriptions & Billing"]},"post":{"operationId":"SubscriptionsController_changePlan","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Subscriptions & Billing"]}},"/api/v1/subscriptions/usage":{"get":{"operationId":"SubscriptionsController_usage","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Subscriptions & Billing"]}},"/api/v1/subscriptions/add-ons":{"post":{"operationId":"SubscriptionsController_toggleAddOn","parameters":[],"responses":{"201":{"description":""}},"security":[{"bearer":[]}],"tags":["Subscriptions & Billing"]}},"/api/v1/admin/audit-logs":{"get":{"operationId":"AuditController_auditLogs","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Audit, Operations & Public Contact"]}},"/api/v1/admin/system-health":{"get":{"operationId":"AuditController_systemHealth","parameters":[],"responses":{"200":{"description":""}},"security":[{"bearer":[]}],"tags":["Audit, Operations & Public Contact"]}},"/api/v1/health":{"get":{"operationId":"AuditController_publicHealth","parameters":[],"responses":{"200":{"description":""}},"tags":["Audit, Operations & Public Contact"]}},"/api/v1/public/contact":{"post":{"operationId":"AuditController_submitContact","parameters":[],"responses":{"201":{"description":""}},"tags":["Audit, Operations & Public Contact"]}},"/api/v1/learn/catalog":{"get":{"operationId":"LearnController_getCatalog","parameters":[{"name":"track","required":true,"in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":""}},"summary":"Publicly accessible Business Coach, Buyer Guide & Community Learn catalog (zero merchant PII)","tags":["Marketplace & Community Literacy"]}},"/api/v1/learn/lessons/{slug}":{"get":{"operationId":"LearnController_getLesson","parameters":[{"name":"slug","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"200":{"description":""}},"summary":"Retrieve full bilingual lesson content, visual cards, interactive exercise & knowledge check","tags":["Marketplace & Community Literacy"]}},"/api/v1/learn/impact":{"get":{"operationId":"LearnController_getImpact","parameters":[],"responses":{"200":{"description":""}},"summary":"Anonymized community empowerment & literacy impact metrics (knowledge gain, safer behaviours)","tags":["Marketplace & Community Literacy"]}},"/api/v1/learn/msingi/status":{"get":{"operationId":"LearnController_getMsingiStatus","parameters":[],"responses":{"200":{"description":""}},"summary":"MsingiAI Sauti Kenyan language speech adapter status (never exposes API keys)","tags":["Marketplace & Community Literacy"]}},"/api/v1/learn/preferences":{"patch":{"operationId":"LearnController_updatePreferences","parameters":[],"responses":{"200":{"description":""}},"summary":"Update learner preferred language, explanation style, low-bandwidth mode, or opt-in operational coach","tags":["Marketplace & Community Literacy"]}},"/api/v1/learn/lessons/{slug}/progress":{"post":{"operationId":"LearnController_recordProgress","parameters":[{"name":"slug","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"201":{"description":""}},"summary":"Record pre/post knowledge assessment gain, exercise completion & safer digital behaviour pledge","tags":["Marketplace & Community Literacy"]}},"/api/v1/learn/my-data":{"delete":{"operationId":"LearnController_deleteMyData","parameters":[],"responses":{"200":{"description":""}},"summary":"Kenya DPA 2019 Right to Erasure: permanently delete personal learning history & tutor logs","tags":["Marketplace & Community Literacy"]}},"/api/v1/learn/coach/ask":{"post":{"operationId":"LearnController_askCoach","parameters":[],"responses":{"201":{"description":""}},"summary":"Intelligent Education Engine (adaptive style, EN/SW/Sheng, prompt-injection safe, opt-in business link)","tags":["Marketplace & Community Literacy"]}},"/api/v1/learn/operational-coach":{"get":{"operationId":"LearnController_getOperationalCoach","parameters":[],"responses":{"200":{"description":""}},"summary":"Opt-in aggregated operational coaching hints (strictly requires verified auth + tenant RBAC + explicit consent)","tags":["Marketplace & Community Literacy"]}},"/api/v1/learn/buyer-tools/unit-compare":{"post":{"operationId":"LearnController_compareUnits","parameters":[],"responses":{"201":{"description":""}},"summary":"Buyer Guide Smart Unit-Price & Quantity Comparator (spots shrinkflation & fake promos)","tags":["Marketplace & Community Literacy"]}},"/api/v1/learn/buyer-tools/verify-guidance":{"post":{"operationId":"LearnController_verifyGuidance","parameters":[],"responses":{"201":{"description":""}},"summary":"Non-certifying Buyer Verification Checklist directing shoppers to official Kenyan regulators","tags":["Marketplace & Community Literacy"]}},"/api/v1/learn/audio/synthesize":{"post":{"operationId":"LearnController_synthesizeAudio","parameters":[],"responses":{"201":{"description":""}},"summary":"Synthesize Kiswahili/English lesson audio via MsingiAI Sauti TTS (with free browser fallback if unkeyed)","tags":["Marketplace & Community Literacy"]}},"/api/v1/learn/audio/transcribe":{"post":{"operationId":"LearnController_transcribeAudio","parameters":[],"responses":{"201":{"description":""}},"summary":"Transcribe Kiswahili/Sheng/English learner voice note via MsingiAI Sauti ASR","tags":["Marketplace & Community Literacy"]}},"/api/v1/learn/ussd":{"post":{"operationId":"LearnController_ussd","parameters":[],"responses":{"201":{"description":""}},"summary":"Low-bandwidth Africa’s Talking-compatible USSD Community Learning menu (*384*2026#)","tags":["Marketplace & Community Literacy"]}},"/api/v1/learn/qr/{slug}":{"get":{"operationId":"LearnController_getLessonQr","parameters":[{"name":"slug","required":true,"in":"path","schema":{"type":"string"}}],"responses":{"200":{"description":""}},"summary":"Generate scannable ISO/IEC 18004 inline SVG QR code poster for market stalls & community boards","tags":["Marketplace & Community Literacy"]}}},"info":{"title":"BizWave SME Intelligence & Community Literacy API","description":"Multi-tenant enterprise REST API for BizWave Analytics, BizWave Predict, BizWave AI (EN/SW), BizWave Connect, and BizWave Marketplace & Community Literacy (with MsingiAI Sauti integration).","version":"1.1.0","contact":{}},"tags":[],"servers":[],"components":{"securitySchemes":{"bearer":{"scheme":"bearer","bearerFormat":"JWT","type":"http"},"X-Tenant-Id":{"type":"apiKey","in":"header","name":"X-Tenant-Id"},"X-Learner-Token":{"type":"apiKey","in":"header","name":"X-Learner-Token"}},"schemas":{}}}
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/v1/auth/register": {
+      "post": {
+        "operationId": "AuthController_register",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "AuthController_login",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "operationId": "AuthController_refresh",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "AuthController_logout",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/forgot-password": {
+      "post": {
+        "operationId": "AuthController_forgotPassword",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/reset-password": {
+      "post": {
+        "operationId": "AuthController_resetPassword",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/change-password": {
+      "post": {
+        "operationId": "AuthController_changePassword",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "operationId": "AuthController_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/mfa/setup": {
+      "post": {
+        "operationId": "AuthController_setupMfa",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/mfa/verify": {
+      "post": {
+        "operationId": "AuthController_verifyMfa",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/sessions": {
+      "get": {
+        "operationId": "AuthController_sessions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/sessions/{id}": {
+      "delete": {
+        "operationId": "AuthController_revokeSession",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/organizations/industry-templates": {
+      "get": {
+        "operationId": "TenantsController_getIndustryTemplates",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
+    "/api/v1/organizations": {
+      "get": {
+        "operationId": "TenantsController_listUserOrganizations",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
+    "/api/v1/organizations/current": {
+      "get": {
+        "operationId": "TenantsController_getCurrentOrg",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
+    "/api/v1/organizations/{id}": {
+      "get": {
+        "operationId": "TenantsController_getById",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Organizations"
+        ]
+      },
+      "patch": {
+        "operationId": "TenantsController_updateOrg",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
+    "/api/v1/branches": {
+      "get": {
+        "operationId": "BranchesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Branches"
+        ]
+      },
+      "post": {
+        "operationId": "BranchesController_create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Branches"
+        ]
+      }
+    },
+    "/api/v1/branches/{id}": {
+      "patch": {
+        "operationId": "BranchesController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Branches"
+        ]
+      },
+      "delete": {
+        "operationId": "BranchesController_archive",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Branches"
+        ]
+      }
+    },
+    "/api/v1/admin/users": {
+      "get": {
+        "operationId": "UsersRolesController_listUsers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Team & Roles"
+        ]
+      }
+    },
+    "/api/v1/admin/roles": {
+      "get": {
+        "operationId": "UsersRolesController_listRoles",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Team & Roles"
+        ]
+      }
+    },
+    "/api/v1/admin/users/invite": {
+      "post": {
+        "operationId": "UsersRolesController_inviteUser",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Team & Roles"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{userId}/role": {
+      "patch": {
+        "operationId": "UsersRolesController_updateRole",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Team & Roles"
+        ]
+      }
+    },
+    "/api/v1/data-sources": {
+      "get": {
+        "operationId": "ImportsController_listDataSources",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Data Sources & Imports"
+        ]
+      },
+      "post": {
+        "operationId": "ImportsController_createDataSource",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Data Sources & Imports"
+        ]
+      }
+    },
+    "/api/v1/imports": {
+      "get": {
+        "operationId": "ImportsController_listImports",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Data Sources & Imports"
+        ]
+      },
+      "post": {
+        "operationId": "ImportsController_uploadImport",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Data Sources & Imports"
+        ]
+      }
+    },
+    "/api/v1/imports/{id}": {
+      "get": {
+        "operationId": "ImportsController_getImport",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Data Sources & Imports"
+        ]
+      }
+    },
+    "/api/v1/imports/{id}/validate": {
+      "post": {
+        "operationId": "ImportsController_validateImport",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Data Sources & Imports"
+        ]
+      }
+    },
+    "/api/v1/imports/{id}/commit": {
+      "post": {
+        "operationId": "ImportsController_commitImport",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Data Sources & Imports"
+        ]
+      }
+    },
+    "/api/v1/sales": {
+      "get": {
+        "operationId": "SalesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Sales"
+        ]
+      },
+      "post": {
+        "operationId": "SalesController_create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Sales"
+        ]
+      }
+    },
+    "/api/v1/sales/{id}/return": {
+      "post": {
+        "operationId": "SalesController_reverseSale",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Sales"
+        ]
+      }
+    },
+    "/api/v1/inventory": {
+      "get": {
+        "operationId": "InventoryController_getStockStatus",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Inventory & Products"
+        ]
+      }
+    },
+    "/api/v1/inventory/adjustments": {
+      "post": {
+        "operationId": "InventoryController_recordAdjustment",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Inventory & Products"
+        ]
+      }
+    },
+    "/api/v1/finance/overview": {
+      "get": {
+        "operationId": "FinanceController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Finance & M-Pesa Reconciliation"
+        ]
+      }
+    },
+    "/api/v1/finance/expenses": {
+      "post": {
+        "operationId": "FinanceController_createExpense",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Finance & M-Pesa Reconciliation"
+        ]
+      }
+    },
+    "/api/v1/finance/reconcile/{txId}": {
+      "post": {
+        "operationId": "FinanceController_reconcileCashTransaction",
+        "parameters": [
+          {
+            "name": "txId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Finance & M-Pesa Reconciliation"
+        ]
+      }
+    },
+    "/api/v1/customers": {
+      "get": {
+        "operationId": "CustomersController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Customers and consent records"
+        ]
+      },
+      "post": {
+        "operationId": "CustomersController_create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Customers and consent records"
+        ]
+      }
+    },
+    "/api/v1/customers/{id}/consents": {
+      "patch": {
+        "operationId": "CustomersController_updateConsent",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Customers and consent records"
+        ]
+      }
+    },
+    "/api/v1/customers/{id}/dpa-export": {
+      "get": {
+        "operationId": "CustomersController_dpaExport",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Customers and consent records"
+        ]
+      }
+    },
+    "/api/v1/customers/{id}/deletion-request": {
+      "post": {
+        "operationId": "CustomersController_requestDeletion",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Customers and consent records"
+        ]
+      }
+    },
+    "/api/v1/analytics/overview": {
+      "get": {
+        "operationId": "AnalyticsController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Analytics & KPI Engine"
+        ]
+      }
+    },
+    "/api/v1/analytics/sales": {
+      "get": {
+        "operationId": "AnalyticsController_salesAnalytics",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Analytics & KPI Engine"
+        ]
+      }
+    },
+    "/api/v1/analytics/products": {
+      "get": {
+        "operationId": "AnalyticsController_productAnalytics",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Analytics & KPI Engine"
+        ]
+      }
+    },
+    "/api/v1/analytics/customers": {
+      "get": {
+        "operationId": "AnalyticsController_customerAnalytics",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Analytics & KPI Engine"
+        ]
+      }
+    },
+    "/api/v1/analytics/expenses": {
+      "get": {
+        "operationId": "AnalyticsController_expenseAnalytics",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Analytics & KPI Engine"
+        ]
+      }
+    },
+    "/api/v1/analytics/inventory": {
+      "get": {
+        "operationId": "AnalyticsController_inventoryAnalytics",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Analytics & KPI Engine"
+        ]
+      }
+    },
+    "/api/v1/analytics/search": {
+      "get": {
+        "operationId": "AnalyticsController_globalSearch",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Analytics & KPI Engine"
+        ]
+      }
+    },
+    "/api/v1/analytics/pro-insights": {
+      "get": {
+        "operationId": "AnalyticsController_proInsights",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Analytics & KPI Engine"
+        ]
+      }
+    },
+    "/api/v1/analytics/daily-checkin-status": {
+      "get": {
+        "operationId": "AnalyticsController_dailyCheckinStatus",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Analytics & KPI Engine"
+        ]
+      }
+    },
+    "/api/v1/analytics/daily-checkin": {
+      "post": {
+        "operationId": "AnalyticsController_submitDailyCheckin",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Analytics & KPI Engine"
+        ]
+      }
+    },
+    "/api/v1/analytics/website-analyze": {
+      "post": {
+        "operationId": "AnalyticsController_analyzeWebsite",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Analytics & KPI Engine"
+        ]
+      }
+    },
+    "/api/v1/analytics/website-sources": {
+      "get": {
+        "operationId": "AnalyticsController_listWebsiteSources",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Analytics & KPI Engine"
+        ]
+      }
+    },
+    "/api/v1/reports": {
+      "get": {
+        "operationId": "ReportsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Reporting"
+        ]
+      }
+    },
+    "/api/v1/reports/generate": {
+      "post": {
+        "operationId": "ReportsController_generate",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Reporting"
+        ]
+      }
+    },
+    "/api/v1/reports/export": {
+      "get": {
+        "operationId": "ReportsController_exportCsv",
+        "parameters": [
+          {
+            "name": "reportType",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Reporting"
+        ]
+      }
+    },
+    "/api/v1/reports/schedule": {
+      "post": {
+        "operationId": "ReportsController_scheduleReport",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Reporting"
+        ]
+      }
+    },
+    "/api/v1/forecasts": {
+      "get": {
+        "operationId": "ForecastingController_listForecasts",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Forecasting & Anomaly Detection (BizWave Predict)"
+        ]
+      },
+      "post": {
+        "operationId": "ForecastingController_createForecast",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Forecasting & Anomaly Detection (BizWave Predict)"
+        ]
+      }
+    },
+    "/api/v1/forecasts/{id}": {
+      "get": {
+        "operationId": "ForecastingController_getForecast",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Forecasting & Anomaly Detection (BizWave Predict)"
+        ]
+      }
+    },
+    "/api/v1/forecasts/anomalies/scan": {
+      "post": {
+        "operationId": "ForecastingController_scanAnomalies",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Forecasting & Anomaly Detection (BizWave Predict)"
+        ]
+      }
+    },
+    "/api/v1/forecasts/segmentation/rfm": {
+      "get": {
+        "operationId": "ForecastingController_rfmSegmentation",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Forecasting & Anomaly Detection (BizWave Predict)"
+        ]
+      }
+    },
+    "/api/v1/ai/status": {
+      "get": {
+        "operationId": "AiController_getStatus",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave AI Assistant"
+        ]
+      }
+    },
+    "/api/v1/ai/briefing": {
+      "get": {
+        "operationId": "AiController_executiveBriefing",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave AI Assistant"
+        ]
+      }
+    },
+    "/api/v1/ai/simulate": {
+      "post": {
+        "operationId": "AiController_runSimulation",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave AI Assistant"
+        ]
+      }
+    },
+    "/api/v1/ai/voice/speak": {
+      "post": {
+        "operationId": "AiController_speakAnswer",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave AI Assistant"
+        ]
+      }
+    },
+    "/api/v1/ai/conversations": {
+      "get": {
+        "operationId": "AiController_listConversations",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave AI Assistant"
+        ]
+      },
+      "post": {
+        "operationId": "AiController_createConversation",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave AI Assistant"
+        ]
+      }
+    },
+    "/api/v1/ai/conversations/{id}/messages": {
+      "get": {
+        "operationId": "AiController_listMessages",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave AI Assistant"
+        ]
+      },
+      "post": {
+        "operationId": "AiController_sendMessage",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave AI Assistant"
+        ]
+      }
+    },
+    "/api/v1/ai/messages/{messageId}/feedback": {
+      "post": {
+        "operationId": "AiController_feedback",
+        "parameters": [
+          {
+            "name": "messageId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave AI Assistant"
+        ]
+      }
+    },
+    "/api/v1/communications/overview": {
+      "get": {
+        "operationId": "CommunicationsController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave Connect (Customer Communications)"
+        ]
+      }
+    },
+    "/api/v1/communications/channels/configure": {
+      "post": {
+        "operationId": "CommunicationsController_configureChannel",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave Connect (Customer Communications)"
+        ]
+      }
+    },
+    "/api/v1/communications/templates": {
+      "post": {
+        "operationId": "CommunicationsController_createTemplate",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave Connect (Customer Communications)"
+        ]
+      }
+    },
+    "/api/v1/communications/campaigns": {
+      "get": {
+        "operationId": "CommunicationsController_listCampaigns",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave Connect (Customer Communications)"
+        ]
+      },
+      "post": {
+        "operationId": "CommunicationsController_createAndLaunchCampaign",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave Connect (Customer Communications)"
+        ]
+      }
+    },
+    "/api/v1/communications/messages": {
+      "post": {
+        "operationId": "CommunicationsController_sendDirectMessage",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave Connect (Customer Communications)"
+        ]
+      }
+    },
+    "/api/v1/communications/reports": {
+      "get": {
+        "operationId": "CommunicationsController_deliveryReports",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave Connect (Customer Communications)"
+        ]
+      }
+    },
+    "/api/v1/communications/webhooks/{provider}": {
+      "post": {
+        "operationId": "CommunicationsController_receiveWebhook",
+        "parameters": [
+          {
+            "name": "provider",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "BizWave Connect (Customer Communications)"
+        ]
+      }
+    },
+    "/api/v1/business-network/businesses": {
+      "get": {
+        "operationId": "BusinessNetworkController_businesses",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Business network"
+        ]
+      }
+    },
+    "/api/v1/business-network/profile": {
+      "get": {
+        "operationId": "BusinessNetworkController_profile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Business network"
+        ]
+      },
+      "put": {
+        "operationId": "BusinessNetworkController_saveProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Business network"
+        ]
+      }
+    },
+    "/api/v1/subscriptions/plans": {
+      "get": {
+        "operationId": "SubscriptionsController_publicPlans",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Subscriptions & Billing"
+        ]
+      }
+    },
+    "/api/v1/subscriptions": {
+      "get": {
+        "operationId": "SubscriptionsController_currentSubscription",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Subscriptions & Billing"
+        ]
+      },
+      "post": {
+        "operationId": "SubscriptionsController_changePlan",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Subscriptions & Billing"
+        ]
+      }
+    },
+    "/api/v1/subscriptions/usage": {
+      "get": {
+        "operationId": "SubscriptionsController_usage",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Subscriptions & Billing"
+        ]
+      }
+    },
+    "/api/v1/subscriptions/add-ons": {
+      "post": {
+        "operationId": "SubscriptionsController_toggleAddOn",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Subscriptions & Billing"
+        ]
+      }
+    },
+    "/api/v1/admin/audit-logs": {
+      "get": {
+        "operationId": "AuditController_auditLogs",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Audit, Operations & Public Contact"
+        ]
+      }
+    },
+    "/api/v1/admin/system-health": {
+      "get": {
+        "operationId": "AuditController_systemHealth",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "Audit, Operations & Public Contact"
+        ]
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "operationId": "AuditController_publicHealth",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Audit, Operations & Public Contact"
+        ]
+      }
+    },
+    "/api/v1/public/contact": {
+      "post": {
+        "operationId": "AuditController_submitContact",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Audit, Operations & Public Contact"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "BizWave AI-Powered SME Intelligence API",
+    "description": "BizWave Analytics, Predict, AI and opt-in business discovery. Customer communications can be prepared, but outbound delivery and online billing are not connected in this release.",
+    "version": "2.0.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      },
+      "X-Tenant-Id": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Tenant-Id"
+      }
+    },
+    "schemas": {}
+  }
+}

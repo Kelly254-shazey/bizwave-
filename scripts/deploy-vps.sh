@@ -4,7 +4,7 @@
 # Provisions:
 #   1. Cryptographic production secrets in .env.production (600 permissions)
 #   2. Hardened multi-container Docker stack (Postgres 17, Redis 7, FastAPI, NestJS, React/Nginx)
-#   3. Schema migrations 001..007 + ONLY production seeds (001 plans/RBAC + 003 public learning)
+#   3. Pending versioned migrations + only production reference seeds (001)
 #      -> ZERO demo tenants, ZERO test passwords, ZERO fake records.
 #   4. Least-privilege DB roles: bizwave_owner (NOSUPERUSER BYPASSRLS) & bizwave_app (NOBYPASSRLS)
 #
@@ -13,7 +13,12 @@
 # =============================================================================
 set -euo pipefail
 
-DOMAIN="${1:?Usage: $0 <your-domain.co.ke>}"
+REQUESTED_DOMAIN="${1:?Usage: $0 <your-domain.co.ke>}"
+if [[ ${#REQUESTED_DOMAIN} -gt 253 || ! "$REQUESTED_DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ || "$REQUESTED_DOMAIN" == *..* ]]; then
+  echo "Please supply a valid DNS hostname." >&2
+  exit 2
+fi
+DOMAIN="$REQUESTED_DOMAIN"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env.production"
@@ -44,8 +49,10 @@ JWT_ACCESS_TTL=15m
 JWT_REFRESH_DAYS=14
 APP_ENCRYPTION_KEY=${ENC_KEY}
 WEBHOOK_SIGNING_SECRET=${WH_SEC}
-CORS_ORIGINS=https://${DOMAIN},http://${DOMAIN}
+CORS_ORIGINS=https://${DOMAIN}
 ENABLE_SWAGGER=false
+# Temporarily open the four portal feature gates across plans; RBAC remains enforced.
+PORTAL_FEATURE_GATING_ENABLED=false
 
 # Optional External LLM for enhanced BizWave AI narratives (OpenAI / Groq / OpenRouter / Ollama)
 LLM_API_KEY=
@@ -67,6 +74,24 @@ set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
+chmod 600 "$ENV_FILE"
+if [[ "$DOMAIN" != "$REQUESTED_DOMAIN" ]]; then
+  echo "The existing .env.production DOMAIN does not match the requested hostname; review the configuration first." >&2
+  exit 1
+fi
+# These passwords are embedded into SQL and connection URLs. Restrict them to
+# URL-safe characters, preventing quoting errors and SQL injection via .env.
+for key in BIZWAVE_OWNER_PASSWORD BIZWAVE_APP_PASSWORD REDIS_PASSWORD; do
+  value="${!key:-}"
+  if [[ ! "$value" =~ ^[A-Za-z0-9_-]{24,}$ ]]; then
+    echo "$key must be at least 24 URL-safe alphanumeric, underscore or hyphen characters." >&2
+    exit 1
+  fi
+done
+if [[ ! "${POSTGRES_DB:-}" =~ ^[A-Za-z_][A-Za-z0-9_]{0,62}$ ]]; then
+  echo "POSTGRES_DB must be a simple PostgreSQL identifier." >&2
+  exit 1
+fi
 
 echo "=== [2/5] Preparing Nginx edge config ==="
 if [[ ! -f "${ROOT_DIR}/infrastructure/nginx/active.conf" ]]; then
@@ -80,7 +105,7 @@ until docker exec bizwave-postgres pg_isready -U postgres -d "${POSTGRES_DB}" >/
   sleep 2
 done
 
-echo "=== [4/5] Applying Production Roles, Migrations (001..007) & Clean Reference Seeds (ZERO Demo Data) ==="
+echo "=== [4/5] Applying pending migrations & clean reference seeds (no demo data) ==="
 docker exec -i bizwave-postgres psql -U postgres -d "${POSTGRES_DB}" -v ON_ERROR_STOP=1 <<SQL
 DO \$\$
 BEGIN
@@ -95,61 +120,35 @@ BEGIN
     ALTER ROLE bizwave_app PASSWORD '${BIZWAVE_APP_PASSWORD}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
   END IF;
 END \$\$;
-GRANT CONNECT ON DATABASE ${POSTGRES_DB} TO bizwave_owner, bizwave_app;
+GRANT CONNECT ON DATABASE "${POSTGRES_DB}" TO bizwave_owner, bizwave_app;
 GRANT CREATE, USAGE ON SCHEMA public TO bizwave_owner;
 GRANT USAGE ON SCHEMA public TO bizwave_app;
 SQL
 
-TABLE_COUNT="$(docker exec bizwave-postgres psql -U postgres -d "${POSTGRES_DB}" -tAc "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='tenants';")"
-if [[ "${TABLE_COUNT}" == "0" ]]; then
-  for f in "${ROOT_DIR}"/database/migrations/00*.sql; do
-    echo "  Applying migration: $(basename "$f")"
-    docker exec -i bizwave-postgres psql -U postgres -d "${POSTGRES_DB}" -v ON_ERROR_STOP=1 < "$f"
-  done
-  echo "  Seeding production plans, RBAC roles & industry templates (001)..."
-  docker exec -i bizwave-postgres psql -U postgres -d "${POSTGRES_DB}" -v ON_ERROR_STOP=1 < "${ROOT_DIR}/database/seeds/001_reference_data_and_plans.sql"
-  echo "  Zero demo tenants loaded (production clean state)."
-fi
+"${ROOT_DIR}/scripts/apply-migrations.sh" \
+  docker exec -i bizwave-postgres psql -U postgres -d "${POSTGRES_DB}"
 
-docker exec -i bizwave-postgres psql -U postgres -d "${POSTGRES_DB}" -v ON_ERROR_STOP=1 <<'SQL'
-DO $$
-DECLARE r RECORD;
-BEGIN
-  FOR r IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
-    EXECUTE format('ALTER TABLE public.%I OWNER TO bizwave_owner;', r.tablename);
-  END LOOP;
-  FOR r IN SELECT sequencename FROM pg_sequences WHERE schemaname = 'public' LOOP
-    EXECUTE format('ALTER SEQUENCE public.%I OWNER TO bizwave_owner;', r.sequencename);
-  END LOOP;
-  FOR r IN SELECT viewname FROM pg_views WHERE schemaname = 'public' LOOP
-    EXECUTE format('ALTER VIEW public.%I OWNER TO bizwave_owner;', r.viewname);
-  END LOOP;
-  FOR r IN SELECT matviewname FROM pg_matviews WHERE schemaname = 'public' LOOP
-    EXECUTE format('ALTER MATERIALIZED VIEW public.%I OWNER TO bizwave_owner;', r.matviewname);
-  END LOOP;
-  FOR r IN
-    SELECT p.oid::regprocedure AS fn
-    FROM pg_proc p
-    JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = 'public' AND (p.proname LIKE 'fn_%' OR p.proname LIKE 'app_%')
-  LOOP
-    EXECUTE format('ALTER FUNCTION %s OWNER TO bizwave_owner;', r.fn);
-  END LOOP;
-END $$;
-ALTER DATABASE bizwave OWNER TO bizwave_owner;
-ALTER SCHEMA public OWNER TO bizwave_owner;
-GRANT USAGE ON SCHEMA public TO bizwave_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO bizwave_app;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO bizwave_app;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO bizwave_app;
+docker exec -i bizwave-postgres psql -U postgres -d "${POSTGRES_DB}" -v ON_ERROR_STOP=1 \
+  < "${ROOT_DIR}/infrastructure/postgres/grant-runtime-access.sql"
+
+docker exec -i bizwave-postgres psql -U postgres -d "${POSTGRES_DB}" -v ON_ERROR_STOP=1 -v dbname="${POSTGRES_DB}" <<'SQL'
+SELECT format('ALTER DATABASE %I OWNER TO bizwave_owner', :'dbname') \gexec
 SQL
 
 echo "=== [5/5] Building & Starting Full Production Stack ==="
 docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml up -d --build
 
-sleep 5
-curl -sf http://127.0.0.1/api/v1/health && echo ""
+echo "Waiting for the HTTP health check..."
+healthy=false
+for _ in {1..30}; do
+  if curl -sf http://127.0.0.1/api/v1/health; then healthy=true; break; fi
+  sleep 2
+done
+if [[ "$healthy" != "true" ]]; then
+  echo "Health check did not become ready; inspect docker compose logs." >&2
+  exit 1
+fi
 echo ""
-echo "✅ BizWave Production Stack is LIVE (zero demo data)!"
+echo "✅ BizWave stack is responding. Existing data was preserved."
 echo "Next step — enable free Let's Encrypt HTTPS for ${DOMAIN}:"
 echo "  ./scripts/setup-https.sh ${DOMAIN} founder@${DOMAIN}"

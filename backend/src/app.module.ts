@@ -20,6 +20,7 @@ import { ForecastingController } from './modules/forecasting/forecasting.control
 import { AiController } from './modules/ai/ai.controller';
 import { MsingiLanguageService } from './modules/ai/msingi.service';
 import { CommunicationsController } from './modules/communications/communications.controller';
+import { BusinessNetworkController } from './modules/communications/business-network.controller';
 import { SubscriptionsController } from './modules/subscriptions/subscriptions.controller';
 import { AuditController } from './modules/audit/audit.controller';
 
@@ -40,6 +41,7 @@ import { AuditController } from './modules/audit/audit.controller';
     ForecastingController,
     AiController,
     CommunicationsController,
+    BusinessNetworkController,
     SubscriptionsController,
     AuditController,
   ],

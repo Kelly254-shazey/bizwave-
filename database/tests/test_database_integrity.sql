@@ -1,150 +1,152 @@
--- BizWave Database Integrity, Immutability, Composite FK & Row-Level Security Automated Test Suite
--- Must be executed as the restricted non-superuser role `bizwave_app`!
-
+-- Transaction-only integrity and isolation tests for the CURRENT BizWave schema.
+-- Run as bizwave_app after migrations and grants. Fixtures are rolled back; no
+-- demo data or disabled immutability triggers are required.
 \set ON_ERROR_STOP on
+BEGIN;
+CREATE TEMPORARY TABLE bw_test_ids (
+  tenant_a uuid, tenant_b uuid, branch_a uuid, branch_b uuid,
+  product_a uuid, product_b uuid, source_a uuid, source_b uuid
+) ON COMMIT DROP;
+INSERT INTO bw_test_ids SELECT gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),
+  gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),gen_random_uuid();
 
--- 1. Verify RLS blocks visibility when no tenant context is set
+-- Test setup represents the API's explicit system transaction. Restrict the
+-- application context again before testing every RLS boundary.
+SELECT set_config('app.is_platform_admin','true',true);
+INSERT INTO tenants (id,name,slug,display_name,business_email)
+SELECT tenant_a,'QA A','qa-a-'||tenant_a::text,'QA A','qa-a@example.test' FROM bw_test_ids
+UNION ALL
+SELECT tenant_b,'QA B','qa-b-'||tenant_b::text,'QA B','qa-b@example.test' FROM bw_test_ids;
+INSERT INTO branches (id,tenant_id,code,name)
+SELECT branch_a,tenant_a,'A','Branch A' FROM bw_test_ids
+UNION ALL SELECT branch_b,tenant_b,'B','Branch B' FROM bw_test_ids;
+INSERT INTO products (id,tenant_id,sku,name,selling_price)
+SELECT product_a,tenant_a,'QA-A','Product A',100 FROM bw_test_ids
+UNION ALL SELECT product_b,tenant_b,'QA-B','Product B',200 FROM bw_test_ids;
+INSERT INTO sales (tenant_id,branch_id,transaction_ref,transaction_date,subtotal,total_amount)
+SELECT tenant_a,branch_a,'QA-ISOLATION-A',NOW(),100,100 FROM bw_test_ids
+UNION ALL SELECT tenant_b,branch_b,'QA-ISOLATION-B',NOW(),200,200 FROM bw_test_ids;
+INSERT INTO inventory_movements (tenant_id,branch_id,product_id,movement_type,quantity_delta,balance_after)
+SELECT tenant_a,branch_a,product_a,'opening',1,1 FROM bw_test_ids;
+-- The opt-in directory has its own policy and does not use the system flag.
+SELECT set_config('app.tenant_id',(SELECT tenant_a::text FROM bw_test_ids),true);
+INSERT INTO business_directory_profiles (tenant_id,display_name,sector,county,contact_email,is_published)
+SELECT tenant_a,'QA A','Retail','Nairobi','published@example.test',TRUE FROM bw_test_ids;
+SELECT set_config('app.tenant_id',(SELECT tenant_b::text FROM bw_test_ids),true);
+INSERT INTO business_directory_profiles (tenant_id,display_name,sector,county,contact_email,is_published)
+SELECT tenant_b,'QA B','Retail','Nairobi','private@example.test',FALSE FROM bw_test_ids;
+INSERT INTO data_sources (id,tenant_id,branch_id,name,source_type)
+SELECT source_a,tenant_a,branch_a,'Source A','json_api' FROM bw_test_ids
+UNION ALL SELECT source_b,tenant_b,branch_b,'Source B','json_api' FROM bw_test_ids;
+INSERT INTO website_catalog_links (tenant_id,data_source_id,external_key,product_id)
+SELECT tenant_a,source_a,'a',product_a FROM bw_test_ids
+UNION ALL SELECT tenant_b,source_b,'b',product_b FROM bw_test_ids;
+SELECT fn_append_audit_log(tenant_a,NULL,'qa@example.test','qa.integrity','test','1',NULL,NULL,'{}') FROM bw_test_ids;
+SELECT set_config('app.is_platform_admin','false',true);
+SELECT set_config('app.tenant_id','',true);
+
 DO $$
-DECLARE
-  v_count INTEGER;
+DECLARE n int; is_super boolean; bypass boolean;
 BEGIN
-  PERFORM set_config('app.tenant_id', '', true);
-  PERFORM set_config('app.is_platform_admin', 'false', true);
-  SELECT COUNT(*) INTO v_count FROM sales;
-  IF v_count <> 0 THEN
-    RAISE EXCEPTION 'RLS FAILURE: Unscoped query returned % sales rows instead of 0!', v_count;
+  SELECT rolsuper,rolbypassrls INTO is_super,bypass FROM pg_roles WHERE rolname=current_user;
+  IF current_user <> 'bizwave_app' OR is_super OR bypass THEN
+    RAISE EXCEPTION 'Must run as non-superuser bizwave_app with NOBYPASSRLS';
   END IF;
-  RAISE NOTICE 'PASS [1/8]: Unscoped tenant query sees 0 rows.';
+  SELECT count(*) INTO n FROM sales;
+  IF n <> 0 THEN RAISE EXCEPTION 'Unscoped sales leaked % rows',n; END IF;
+  SELECT count(*) INTO n FROM vw_daily_sales_summary;
+  IF n <> 0 THEN RAISE EXCEPTION 'Unscoped sales view leaked % rows',n; END IF;
+  IF has_table_privilege(current_user,'public.mv_tenant_daily_analytics','SELECT') THEN
+    RAISE EXCEPTION 'Runtime role must not read the cross-tenant materialized cache';
+  END IF;
+  IF has_table_privilege(current_user,'public.schema_migrations','INSERT') THEN
+    RAISE EXCEPTION 'Runtime role must not modify migration history';
+  END IF;
+  SELECT count(*) INTO n FROM website_catalog_links;
+  IF n <> 0 THEN RAISE EXCEPTION 'Unscoped website links leaked % rows',n; END IF;
+  RAISE NOTICE 'PASS: restricted application role, unscoped RLS and protected cache';
 END $$;
 
--- 2. Verify Tenant 1 (Savannah) cannot read Tenant 2 (Kijiji) data and vice-versa
 DO $$
-DECLARE
-  v_t1_sales INTEGER;
-  v_t2_sales INTEGER;
-  v_leak INTEGER;
+DECLARE a uuid; b uuid; n int;
 BEGIN
-  PERFORM set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', true);
-  SELECT COUNT(*) INTO v_t1_sales FROM sales;
-  SELECT COUNT(*) INTO v_leak FROM sales WHERE tenant_id = '22222222-2222-4222-8222-222222222222';
-  IF v_t1_sales = 0 OR v_leak <> 0 THEN
-    RAISE EXCEPTION 'RLS FAILURE on Tenant 1: own=%, leaked=%', v_t1_sales, v_leak;
-  END IF;
-
-  PERFORM set_config('app.tenant_id', '22222222-2222-4222-8222-222222222222', true);
-  SELECT COUNT(*) INTO v_t2_sales FROM sales;
-  SELECT COUNT(*) INTO v_leak FROM sales WHERE tenant_id = '11111111-1111-4111-8111-111111111111';
-  IF v_t2_sales = 0 OR v_leak <> 0 THEN
-    RAISE EXCEPTION 'RLS FAILURE on Tenant 2: own=%, leaked=%', v_t2_sales, v_leak;
-  END IF;
-  RAISE NOTICE 'PASS [2/8]: Strict bi-directional RLS isolation verified (Savannah=% sales, Kijiji=% sales, leaks=0).', v_t1_sales, v_t2_sales;
+  SELECT tenant_a,tenant_b INTO a,b FROM bw_test_ids;
+  PERFORM set_config('app.tenant_id',a::text,true);
+  SELECT count(*) INTO n FROM sales WHERE tenant_id=b;
+  IF n <> 0 THEN RAISE EXCEPTION 'Tenant A saw tenant B sales'; END IF;
+  SELECT count(*) INTO n FROM sales WHERE tenant_id=a AND transaction_ref='QA-ISOLATION-A' AND cost_basis='unknown';
+  IF n <> 1 THEN RAISE EXCEPTION 'Own sale missing or unknown cost not preserved'; END IF;
+  SELECT count(*) INTO n FROM website_catalog_links WHERE tenant_id=b;
+  IF n <> 0 THEN RAISE EXCEPTION 'Tenant A saw tenant B catalog links'; END IF;
+  PERFORM set_config('app.tenant_id',b::text,true);
+  SELECT count(*) INTO n FROM sales WHERE tenant_id=a;
+  IF n <> 0 THEN RAISE EXCEPTION 'Tenant B saw tenant A sales'; END IF;
+  RAISE NOTICE 'PASS: bidirectional tenant isolation, catalog RLS and unknown cost';
 END $$;
 
--- 3. Verify Composite Tenant-Aware FK prevents cross-tenant branch linking even under insert attempt
 DO $$
+DECLARE a uuid; b uuid; branch_b uuid; blocked boolean := false;
 BEGIN
-  PERFORM set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', true);
+  SELECT tenant_a,tenant_b,bw_test_ids.branch_b INTO a,b,branch_b FROM bw_test_ids;
+  PERFORM set_config('app.tenant_id',a::text,true);
   BEGIN
-    INSERT INTO sales (tenant_id, branch_id, transaction_ref, transaction_date, subtotal, total_amount)
-    VALUES ('11111111-1111-4111-8111-111111111111', '22222222-aaaa-4222-8222-000000000001', 'CROSS-TENANT-ATTACK', NOW(), 100, 100);
-    RAISE EXCEPTION 'FK FAILURE: Cross-tenant branch link should have failed!';
-  EXCEPTION WHEN foreign_key_violation THEN
-    RAISE NOTICE 'PASS [3/8]: Composite foreign key rejected cross-tenant branch linkage.';
+    INSERT INTO sales (tenant_id,branch_id,transaction_ref,transaction_date,subtotal,total_amount)
+    VALUES (a,branch_b,'QA-CROSS-TENANT',NOW(),10,10);
+  EXCEPTION WHEN foreign_key_violation THEN blocked := true;
   END;
+  IF NOT blocked THEN RAISE EXCEPTION 'Composite FK permitted a cross-tenant branch'; END IF;
+  RAISE NOTICE 'PASS: composite FK rejects cross-tenant branch';
 END $$;
 
--- 4. Verify inventory_movements immutability trigger rejects UPDATE and DELETE
 DO $$
-DECLARE
-  v_mv_id UUID;
+DECLARE a uuid; b uuid; n int;
 BEGIN
-  PERFORM set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', true);
-  SELECT id INTO v_mv_id FROM inventory_movements LIMIT 1;
-  BEGIN
-    UPDATE inventory_movements SET quantity_delta = 999 WHERE id = v_mv_id;
-    RAISE EXCEPTION 'IMMUTABILITY FAILURE: inventory_movements allowed UPDATE!';
+  SELECT tenant_a,tenant_b INTO a,b FROM bw_test_ids;
+  PERFORM set_config('app.tenant_id',b::text,true);
+  SELECT count(*) INTO n FROM business_directory_profiles WHERE tenant_id=a AND contact_email='published@example.test';
+  IF n <> 1 THEN RAISE EXCEPTION 'Published profile not discoverable'; END IF;
+  UPDATE business_directory_profiles SET display_name='tampered' WHERE tenant_id=a;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 0 THEN RAISE EXCEPTION 'Cross-tenant directory update succeeded'; END IF;
+  PERFORM set_config('app.tenant_id',a::text,true);
+  SELECT count(*) INTO n FROM business_directory_profiles WHERE tenant_id=b;
+  IF n <> 0 THEN RAISE EXCEPTION 'Unpublished profile visible across tenants'; END IF;
+  RAISE NOTICE 'PASS: opt-in directory publish, private profile and cross-tenant write isolation';
+END $$;
+
+DO $$
+DECLARE a uuid; mv uuid; blocked boolean;
+BEGIN
+  SELECT tenant_a INTO a FROM bw_test_ids;
+  PERFORM set_config('app.tenant_id',a::text,true);
+  SELECT id INTO mv FROM inventory_movements WHERE tenant_id=a LIMIT 1;
+  IF mv IS NULL THEN RAISE EXCEPTION 'Inventory fixture missing'; END IF;
+  blocked := false;
+  BEGIN UPDATE inventory_movements SET quantity_delta=99 WHERE id=mv;
   EXCEPTION WHEN raise_exception THEN
-    RAISE NOTICE 'PASS [4/8]: Immutability trigger blocked UPDATE on inventory_movements.';
+    IF SQLERRM LIKE 'Table inventory_movements is immutable:%' THEN blocked := true; ELSE RAISE; END IF;
   END;
+  IF NOT blocked THEN RAISE EXCEPTION 'Inventory UPDATE was not blocked'; END IF;
+  blocked := false;
+  BEGIN DELETE FROM inventory_movements WHERE id=mv;
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM LIKE 'Table inventory_movements is immutable:%' THEN blocked := true; ELSE RAISE; END IF;
+  END;
+  IF NOT blocked THEN RAISE EXCEPTION 'Inventory DELETE was not blocked'; END IF;
+  RAISE NOTICE 'PASS: immutable inventory ledger rejects UPDATE and DELETE';
 END $$;
 
--- 5. Verify SHA-256 hash-chained audit_logs integrity check passes
 DO $$
-DECLARE
-  v_valid BOOLEAN;
-  v_checked BIGINT;
-  v_broken BIGINT;
+DECLARE valid boolean; checked bigint; broken bigint; blocked boolean := false; audit_id bigint;
 BEGIN
-  SELECT is_valid, checked_records, broken_at_id INTO v_valid, v_checked, v_broken FROM fn_verify_audit_chain();
-  IF NOT v_valid OR v_checked < 2 THEN
-    RAISE EXCEPTION 'AUDIT CHAIN FAILURE: valid=%, checked=%, broken=%', v_valid, v_checked, v_broken;
-  END IF;
-  RAISE NOTICE 'PASS [5/8]: Audit SHA-256 hash chain verified across % records.', v_checked;
+  SELECT is_valid,checked_records,broken_at_id INTO valid,checked,broken FROM fn_verify_audit_chain();
+  IF NOT valid OR checked < 1 THEN RAISE EXCEPTION 'Audit chain invalid or empty: valid %, checked %, broken %',valid,checked,broken; END IF;
+  SELECT id INTO audit_id FROM audit_logs ORDER BY id DESC LIMIT 1;
+  BEGIN DELETE FROM audit_logs WHERE id=audit_id;
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM LIKE 'Table audit_logs is immutable:%' THEN blocked := true; ELSE RAISE; END IF;
+  END;
+  IF NOT blocked THEN RAISE EXCEPTION 'Audit DELETE was not blocked'; END IF;
+  RAISE NOTICE 'PASS: % audit records validate and immutable audit rejects DELETE',checked;
 END $$;
-
--- 6. Verify KPI calculation function returns exact non-zero KES totals for Savannah
-DO $$
-DECLARE
-  v_rev NUMERIC(14,2);
-  v_orders BIGINT;
-BEGIN
-  PERFORM set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', true);
-  SELECT total_revenue, order_count INTO v_rev, v_orders
-  FROM fn_calculate_business_kpis('11111111-1111-4111-8111-111111111111', NULL, CURRENT_DATE - 30, CURRENT_DATE);
-  IF v_rev <= 0 OR v_orders <= 0 THEN
-    RAISE EXCEPTION 'KPI FUNCTION FAILURE: rev=%, orders=%', v_rev, v_orders;
-  END IF;
-  RAISE NOTICE 'PASS [6/8]: fn_calculate_business_kpis computed KES % across % orders (last 30d).', v_rev, v_orders;
-END $$;
-
--- 7. Verify Public Community Learn catalog is accessible while ZERO private merchant rows are exposed
-DO $$
-DECLARE
-  v_modules INTEGER;
-  v_sales_leak INTEGER;
-  v_customer_leak INTEGER;
-BEGIN
-  PERFORM set_config('app.tenant_id', '', true);
-  PERFORM set_config('app.is_platform_admin', 'false', true);
-  PERFORM set_config('app.learner_id', '', true);
-  SELECT COUNT(*) INTO v_modules FROM learning_modules WHERE is_published = TRUE;
-  SELECT COUNT(*) INTO v_sales_leak FROM sales;
-  SELECT COUNT(*) INTO v_customer_leak FROM customers;
-  IF v_modules < 26 OR v_sales_leak <> 0 OR v_customer_leak <> 0 THEN
-    RAISE EXCEPTION 'PUBLIC LITERACY ISOLATION FAILURE: modules=%, sales_leak=%, customer_leak=%', v_modules, v_sales_leak, v_customer_leak;
-  END IF;
-  RAISE NOTICE 'PASS [7/8]: Public literacy catalog (% modules) accessible with ZERO merchant/customer row leakage.', v_modules;
-END $$;
-
--- 8. Verify strict per-learner RLS isolation on learner_profiles & learner_lesson_progress
-DO $$
-DECLARE
-  v_l1 UUID := gen_random_uuid();
-  v_l2 UUID := gen_random_uuid();
-  v_mod UUID;
-  v_leak INTEGER;
-BEGIN
-  SELECT id INTO v_mod FROM learning_modules LIMIT 1;
-
-  -- Create two isolated pseudonymous learners under platform admin test setup, then verify learner RLS
-  PERFORM set_config('app.is_platform_admin', 'true', true);
-  INSERT INTO learner_profiles (id, learner_token_hash, preferred_language) VALUES (v_l1, encode(digest(v_l1::text, 'sha256'), 'hex'), 'sw');
-  INSERT INTO learner_profiles (id, learner_token_hash, preferred_language) VALUES (v_l2, encode(digest(v_l2::text, 'sha256'), 'hex'), 'en');
-  INSERT INTO learner_lesson_progress (learner_id, module_id, pre_score_pct, post_score_pct, completed_at) VALUES (v_l1, v_mod, 40, 100, NOW());
-  INSERT INTO learner_lesson_progress (learner_id, module_id, pre_score_pct, post_score_pct, completed_at) VALUES (v_l2, v_mod, 50, 100, NOW());
-
-  -- Drop admin flag and act strictly as Learner 1
-  PERFORM set_config('app.is_platform_admin', 'false', true);
-  PERFORM set_config('app.learner_id', v_l1::text, true);
-  PERFORM set_config('app.user_id', '', true);
-  SELECT COUNT(*) INTO v_leak FROM learner_lesson_progress WHERE learner_id = v_l2;
-  IF v_leak <> 0 THEN
-    RAISE EXCEPTION 'LEARNER RLS FAILURE: Learner 1 saw % rows belonging to Learner 2!', v_leak;
-  END IF;
-
-  -- Clean up synthetic test learners
-  PERFORM set_config('app.is_platform_admin', 'true', true);
-  DELETE FROM learner_profiles WHERE id IN (v_l1, v_l2);
-  RAISE NOTICE 'PASS [8/8]: Strict per-learner RLS isolation verified (Learner 1 leaks of Learner 2 = 0).';
-END $$;
-
+ROLLBACK;

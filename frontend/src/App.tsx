@@ -24,6 +24,7 @@ const AnalyticsPage = lazy(() => import('./pages/app/AnalyticsPage').then((m) =>
 const PredictPage = lazy(() => import('./pages/app/PredictPage').then((m) => ({ default: m.PredictPage })));
 const AiAssistantPage = lazy(() => import('./pages/app/AiAssistantPage').then((m) => ({ default: m.AiAssistantPage })));
 const ConnectPage = lazy(() => import('./pages/app/ConnectPage').then((m) => ({ default: m.ConnectPage })));
+const CustomerCommunicationsPage = lazy(() => import('./pages/app/CustomerCommunicationsPage').then((m) => ({ default: m.CustomerCommunicationsPage })));
 const ReportsPage = lazy(() => import('./pages/app/ReportsPage').then((m) => ({ default: m.ReportsPage })));
 const TeamPage = lazy(() => import('./pages/app/TeamPage').then((m) => ({ default: m.TeamPage })));
 const BillingPage = lazy(() => import('./pages/app/BillingPage').then((m) => ({ default: m.BillingPage })));
@@ -157,6 +158,7 @@ export const App: React.FC = () => (
                 <Route path="predict" element={<PredictPage />} />
                 <Route path="ai" element={<AiAssistantPage />} />
                 <Route path="connect" element={<ConnectPage />} />
+                <Route path="customer-communications" element={<CustomerCommunicationsPage />} />
                 <Route path="reports" element={<ReportsPage />} />
                 <Route path="team" element={<TeamPage />} />
                 <Route path="billing" element={<BillingPage />} />

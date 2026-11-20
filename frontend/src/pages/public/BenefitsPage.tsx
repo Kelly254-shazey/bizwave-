@@ -32,7 +32,7 @@ const BEFORE_AFTER = [
   {
     area: 'Customer Retention',
     before: 'No way to spot regular customers who silently stopped buying 30–60 days ago.',
-    after: 'Automated RFM segmentation highlights dormant VIPs so you re-engage opted-in buyers via WhatsApp or SMS in one click.',
+    after: 'Customer segmentation can highlight dormant buyers for review. Messaging delivery is not connected in this release.',
   },
 ];
 
@@ -77,7 +77,7 @@ const SECTORS = [
     headline: 'Turn one-time walk-ins into loyal repeat bookings.',
     points: [
       'Identify highest-margin services vs consumable product costs.',
-      'Spot regular clients overdue for a visit and send consent-safe WhatsApp reminders.',
+      'Spot regular clients overdue for a visit and review their recorded contact consent.',
       'Forecast quiet mid-week slots to run targeted retention offers.',
     ],
   },

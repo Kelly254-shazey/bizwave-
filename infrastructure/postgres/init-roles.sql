@@ -16,6 +16,6 @@ BEGIN
   END IF;
 END $$;
 
-GRANT CONNECT ON DATABASE bizwave TO bizwave_owner, bizwave_app;
+SELECT format('GRANT CONNECT ON DATABASE %I TO bizwave_owner, bizwave_app', current_database()) \gexec
 GRANT CREATE, USAGE ON SCHEMA public TO bizwave_owner;
 GRANT USAGE ON SCHEMA public TO bizwave_app;

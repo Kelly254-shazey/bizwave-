@@ -1,79 +1,35 @@
-# BizWave SME User Guide (English & Kiswahili Quick Reference)
+# BizWave portal guide / Mwongozo wa BizWave
 
-*Welcome to **BizWave** — "Your business. Understood. Your next move. Clear." ("Biashara yako. Inaeleweka. Hatua yako ijayo. Iko wazi.")*
+## 1. Start and language / Anza na lugha
 
----
+Register with your business details and password, then complete the organization setup. Switch English/Kiswahili using the language control; your preference persists in the browser. The public website is separate from the signed-in portal. There are no seeded demo logins. Some features depend on your role and branch assignments.
 
-## 1. Getting Started (Kuanza Kutumia BizWave)
+## 2. Dashboard / Muhtasari
 
-1. **Create Your Workspace**: Click **Register** on the BizWave website, enter your name, work email, business name, and select your industry template (**Retail**, **Restaurants & Cafes**, **Wholesale & Distribution**, **Salons & Wellness**, **Professional Services**, or **General SME**).
-2. **Personalize Your Portal (Onboarding Wizard)**:
-   - Choose your brand color and upload/link your business logo.
-   - Add additional branches (e.g., Westlands Flagship, Kilimani Express).
-   - Invite team members with exact role permissions (Finance Officer, Inventory Manager, Branch Manager, Customer Service Agent, or Read-Only Auditor).
-3. **Switch Language Anytime**: Click **EN / SW** in the top bar of your workspace to switch between English and Kiswahili.
+The dashboard shows available sales, stock and other measures for your permitted scope. Use the daily check-in to record the requested daily information. Empty states mean records have not yet been entered, not that a business has zero sales. Cost and profit figures are hidden when your role lacks finance access or inputs are unknown.
 
----
+## 3. Analytics and website review / Uchambuzi na tovuti
 
-## 2. Importing Your Business Data (`BizWave Analytics -> Data Imports`)
+Under **Analytics**, review permitted sales, inventory, expenses and imports. Upload a supported CSV/Excel file, review validation, and explicitly commit it. Website sync lets you enter a public URL and **analyze without saving**. Review the results. A separate import button, available only with the right permissions, saves eligible products/source: only explicit positive KES prices, no inferred purchase costs or stock, and no overwrite of an unrelated existing SKU. Website results may be incomplete; verify them yourself.
 
-BizWave works with spreadsheets (`.csv`, `.xlsx`), M-Pesa statements, and POS/JSON exports:
-1. Open **Analytics** -> **Data Imports**.
-2. Upload your sales CSV/XLSX file (or click **Load Sample CSV** to test the pipeline).
-3. **Map & Validate**: Review column mappings. BizWave checks every row for missing dates, invalid KES amounts, or duplicate receipt numbers — **invalid rows are highlighted clearly with exact row numbers and never silently dropped**.
-4. **Commit**: Click **Commit Valid Rows** to update your dashboards, inventory ledger, and financial summaries immediately.
+## 4. Predict / Utabiri
 
----
+Use your permitted sales or stock history to explore forecasts and alerts; insufficient history can prevent a prediction. Cash-flow estimates require whole-business finance access, a current balance entered in KES, at least 10 days with reconciled inflows and at least one reconciled outflow. The estimate combines recorded patterns and eligible future obligations; overdue items are excluded and overlap is possible. Review assumptions before making decisions. It is not a guarantee.
 
-## 3. Understanding Your Dashboard & KPIs
+## 5. BizWave AI / Msaidizi wa BizWave
 
-- Hover or click the **`i`** icon on any KPI card (Total Revenue, Gross Profit, Expenses, Net Profit, Order Volume, Average Order Value) to inspect the **exact formula** and **date-range comparison** (`vs prev period`).
-- Check the **Data Coverage** card at the top to see how many days of sales, expense, and SKU data back your insights.
-- Use the **Branch Selector** at the top to compare all branches combined or drill into one specific shop.
-- Need to correct a mistake on a sale or stock count?
-  - **Sales Returns**: Click **Return** on any sale to record a traceable negative reversal (original receipts are never deleted for KRA audit safety).
-  - **Inventory Adjustments**: Record wastage, breakage, or stock-take adjustments under **Analytics -> Inventory & Stock** with a mandatory reason.
-  - **M-Pesa Reconciliation**: Under **Analytics -> Finance & M-Pesa**, click **Reconcile** to match Till/Paybill inflows against recorded sales.
+Ask business questions in English or Kiswahili, using the role and branch scope you are authorized to see. Change of scope starts a separate conversation rather than exposing another scope's history. Browser voice input/read-aloud depends on permissions and device support; an external speech provider is optional and unverified. Do not rely on AI outputs without checking the underlying records.
 
----
+## 6. Connect / Mtandao wa biashara
 
-## 4. Forecasting & Anomaly Alerts (`BizWave Predict`)
+Browse other signed-in businesses that opted to publish. Search by name, sector or location. A business owner can create a profile and choose whether to publish; unpublish it to remove the listing. Only the details entered into the profile are shared. Contact is through the business's optional published email or website; there is no in-app messaging. Directory counts reflect published BizWave profiles, not demand across the market.
 
-Available on **Growth**, **Intelligence**, and **Enterprise** plans:
-- **Sales Forecast**: Predicts revenue over 7, 14, or 30 days with **80% and 95% confidence bands** and real backtest accuracy (`MAPE`, `MAE`).
-- **Stockout-Aware Demand Forecast**: Estimates upcoming units needed for a specific SKU while flagging days where past stockouts suppressed demand.
-- **Cash-Flow Forecast**: Clearly separates **Confirmed Obligations** (recorded bills & invoices due) from **Estimated Operational Flows**.
-- **Not Enough History Yet?**: If your business has fewer than 14 days of data, BizWave clearly displays `Insufficient Data` with exact guidance on how many more days to import — it never invents fake numbers.
-- **Customer Segments (RFM & Churn)**: Identifies Champions, Loyal Customers, and At-Risk customers so you can follow up before they churn.
+**Customer communications** is a separate section for permitted users to review customers, consent, templates and campaign checks. It cannot send SMS, WhatsApp, voice or USSD messages in this release, even when credentials are entered. Whole-business access is required for those communication records.
 
----
+## 7. Reports, team and settings / Ripoti, timu na mipangilio
 
-## 5. Asking Your Grounded Business Assistant (`BizWave AI`)
+Generate and download authorized reports. Saved schedules are inactive drafts; automatic delivery is not connected. Team access is controlled by role and branch assignments. Settings includes password change; automated password-reset emails are not configured. If locked out, contact your business administrator or operator.
 
-Ask questions naturally in **English or Kiswahili**:
-- *"Why did sales change this week?"* / *"Kwa nini mauzo yalibadilika wiki hii?"*
-- *"Which products are running low on stock?"* / *"Ni bidhaa zipi zinaisha?"*
-- *"Compare Westlands and Kilimani branch performance"*
-- *"How is my M-Pesa reconciliation looking?"*
+## 8. Billing and feature access / Malipo na ufikiaji
 
-Every BizWave AI response displays:
-- **Verified Provenance** (exact date range, branch scope, and database tables queried).
-- **Supporting Charts** rendered directly inside the conversation.
-- **Structured Recommendations** distinguishing observed facts, estimates, and next actions.
-- Rate answers with thumbs up/down to help improve relevance.
-
----
-
-## 6. Consent-First Customer Communications (`BizWave Connect`)
-
-Available on **Intelligence** and **Enterprise** plans:
-1. **Configure Providers**: Under **Connect -> Providers**, enter your **Africa's Talking** (SMS/Voice/USSD) or **Meta WhatsApp Cloud API** credentials. They are encrypted with AES-256-GCM immediately. *(Until live credentials are configured, messages safely queue as `Pending Provider Config` and never pretend to be sent.)*
-2. **Manage Kenya DPA 2019 Consent**: Under **Customers & DPA Consent**, toggle per-channel SMS/WhatsApp opt-in or export a customer's complete DPA 2019 data portability package in one click.
-3. **Launch Campaigns**: Pick an approved English or Kiswahili template and target audience — BizWave automatically excludes anyone without valid channel consent.
-
----
-
-## 7. Security Best Practices for SME Owners
-- Enable **Two-Factor Authentication (TOTP MFA)** under **Settings** using Google Authenticator or Authy.
-- Give each staff member their own login and lowest-necessary role (e.g., Branch Manager scoped only to their shop).
-- Review **Billing & Audit -> Immutable Audit Log Trail** periodically to verify all sensitive changes.
+Plan prices and add-ons are for reference. Online plan changes, purchases and payment collection are unavailable; no payment is taken in the portal. During the current preview, Predict, AI and Connect feature gates are open across plans, but role/tenant/branch permissions and other limits still apply. An administrator can restore plan-based gates.

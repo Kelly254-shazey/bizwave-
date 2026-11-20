@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import {
@@ -10,7 +11,15 @@ import {
   verifyPassword,
 } from '../src/database/crypto.util';
 import { MsingiLanguageService } from '../src/modules/ai/msingi.service';
-import { assertProductionConfig, envConfig } from '../src/config/env.config';
+import { assertProductionConfig, envConfig, isSecureProductionOrigin } from '../src/config/env.config';
+import { AiController } from '../src/modules/ai/ai.controller';
+import { ForecastingController } from '../src/modules/forecasting/forecasting.controller';
+import { CommunicationsController } from '../src/modules/communications/communications.controller';
+import { SubscriptionsController } from '../src/modules/subscriptions/subscriptions.controller';
+import { AnalyticsController } from '../src/modules/analytics/analytics.controller';
+import { inventoryRowForRole, saleForRole } from '../src/common/inventory-visibility';
+import { effectivePortalFeatures } from '../src/common/portal-features';
+import { TenantAuthContext } from '../src/common/types/auth.types';
 
 let passed = 0;
 
@@ -81,6 +90,7 @@ async function main() {
     assert.ok(st.baseUrl.startsWith('http'));
     assert.ok(!serialized.includes('msk_'), 'Never leak Msingi API keys in public status');
     assert.ok(st.supportedCapabilities.selfHostableOpenWeights.includes('sauti-tts'));
+    assert.match(st.pricingTransparency, /not been verified/i);
   });
 
   await unit('MsingiAI voice synthesis gracefully falls back when unkeyed and clamps over-long text to 2,000 chars', async () => {
@@ -102,10 +112,86 @@ async function main() {
     }
   });
 
+  await unit('Production CORS origins must be explicit HTTPS origins without paths or wildcards', () => {
+    assert.equal(isSecureProductionOrigin('https://app.example.test'), true);
+    assert.equal(isSecureProductionOrigin('https://app.example.test:8443'), true);
+    for (const origin of ['http://app.example.test', '*', 'https://*.example.test', 'https://user:pass@app.example.test', 'https://app.example.test/', 'https://app.example.test/path', 'https://app.example.test?x=1', 'not-a-url']) {
+      assert.equal(isSecureProductionOrigin(origin), false, origin);
+    }
+  });
+
   await unit('Exact decimal financial arithmetic prevents IEEE-754 cent drift when summing KES line items', () => {
     const lineItemsCents = [1999, 2999, 4999, 1003]; // KES 19.99 + 29.99 + 49.99 + 10.03 = 110.00
     const totalKes = lineItemsCents.reduce((a, b) => a + b, 0) / 100;
     assert.equal(totalKes, 110);
+  });
+
+  const scoped: TenantAuthContext = {
+    tenantId: 't1', tenantName: 'Test', industryCode: 'retail', planCode: 'starter',
+    roles: ['branch_manager'], permissions: ['ai:use', 'sales:read'],
+    allowedBranchIds: ['branch-a'], enabledFeatures: ['ai_assistant'],
+  };
+  await unit('AI history is readable only within its saved scope and writes require exactly the original scope', () => {
+    const controller: any = new AiController({} as any, {} as any);
+    const snapshot = controller.conversationScope(scoped);
+    assert.equal(controller.mayReadConversation(scoped, snapshot), true);
+    assert.equal(controller.hasSameConversationScope(scoped, snapshot), true);
+    const moreBranches = { ...scoped, allowedBranchIds: ['branch-a', 'branch-b'] };
+    assert.equal(controller.mayReadConversation(moreBranches, snapshot), true);
+    assert.equal(controller.hasSameConversationScope(moreBranches, snapshot), false);
+    const morePermissions = { ...scoped, permissions: [...scoped.permissions, 'finance:read'], allowedBranchIds: null };
+    assert.equal(controller.mayReadConversation(morePermissions, snapshot), true);
+    assert.equal(controller.hasSameConversationScope(morePermissions, snapshot), false);
+    assert.equal(controller.mayReadConversation({ ...scoped, allowedBranchIds: [] }, snapshot), false);
+    assert.equal(controller.mayReadConversation({ ...scoped, permissions: ['ai:use'] }, snapshot), false);
+    assert.equal(controller.mayReadConversation(scoped, null), false);
+  });
+  await unit('Branch-restricted roles cannot use whole-business communications or forecast another branch', () => {
+    const comm: any = new CommunicationsController({} as any);
+    const forecast: any = new ForecastingController({} as any);
+    assert.throws(() => comm.requireWholeBusiness(scoped), /whole-business access/);
+    assert.doesNotThrow(() => comm.requireWholeBusiness({ ...scoped, allowedBranchIds: null }));
+    assert.equal(forecast.resolveRunBranch(scoped, 'all'), 'branch-a');
+    assert.throws(() => forecast.resolveRunBranch(scoped, 'branch-b'), /not authorized/);
+  });
+  await unit('Stock and sale cost fields are hidden without finance permission and missing costs stay unknown', () => {
+    const row = { sku: 'X', cost_price: '75', inventory_value_cost: '150' };
+    assert.deepEqual(inventoryRowForRole(row, scoped), { sku: 'X' });
+    assert.deepEqual(saleForRole({ total_amount: 250, cost_of_goods_sold: 75, cost_basis: 'actual' }, scoped), { total_amount: 250 });
+    const finance = { ...scoped, permissions: [...scoped.permissions, 'finance:read'] };
+    assert.equal(inventoryRowForRole({ ...row, cost_price: '0' }, finance).cost_price, null);
+    assert.equal(inventoryRowForRole(row, finance).inventory_value_cost, '150');
+  });
+  await unit('Temporary plan access is reversible without changing role permissions', () => {
+    const previous = envConfig.featureGatingEnabled;
+    try {
+      (envConfig as any).featureGatingEnabled = false;
+      assert.ok(effectivePortalFeatures(['manual_imports']).includes('ai_assistant'));
+      (envConfig as any).featureGatingEnabled = true;
+      assert.deepEqual(effectivePortalFeatures(['manual_imports']), ['manual_imports']);
+      assert.deepEqual(scoped.permissions, ['ai:use', 'sales:read']);
+    } finally { (envConfig as any).featureGatingEnabled = previous; }
+  });
+
+  await unit('Website preview does not persist a source even for an authorized importer', async () => {
+    const previousFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async () => new Response(JSON.stringify({ url: 'https://example.test', products: [] }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch;
+      const db: any = { withTenant: () => { throw new Error('Preview attempted a database write'); } };
+      const controller = new AnalyticsController(db);
+      const result = await controller.analyzeWebsite({ url: 'https://example.test', importCatalog: false },
+        { ...scoped, permissions: ['analytics:read', 'imports:manage', 'inventory:write'] }, {} as any);
+      assert.equal(result.sourceSaved, false);
+      assert.equal(result.importedCount, 0);
+    } finally { globalThis.fetch = previousFetch; }
+  });
+  await unit('Unconfigured billing rejects purchases without touching the database', async () => {
+    const db: any = new Proxy({}, { get: () => { throw new Error('Billing attempted database access'); } });
+    const controller = new SubscriptionsController(db);
+    await assert.rejects(controller.changePlan(), /No payment has been taken/);
+    await assert.rejects(controller.toggleAddOn(), /No payment has been taken/);
   });
 
   console.log(`\nALL ${passed} BACKEND UNIT TESTS PASSED!`);

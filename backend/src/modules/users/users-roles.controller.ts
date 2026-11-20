@@ -25,7 +25,7 @@ export class UsersRolesController {
   @Get('users')
   @RequirePermissions('users:read')
   async listUsers(@TenantCtx() ctx: TenantAuthContext) {
-    const res = await this.db.query(
+    const res = await this.db.withTenant(ctx.tenantId, (client) => client.query(
       `SELECT u.id, u.email, u.first_name, u.last_name, u.phone_number, u.status, u.mfa_enabled, u.last_login_at,
               up.job_title,
               ARRAY_AGG(DISTINCT r.code) AS role_codes,
@@ -43,7 +43,7 @@ export class UsersRolesController {
        GROUP BY u.id, up.job_title
        ORDER BY u.created_at ASC`,
       [ctx.tenantId],
-    );
+    ));
     return { users: res.rows };
   }
 
@@ -61,6 +61,20 @@ export class UsersRolesController {
        ORDER BY r.scope DESC, r.name ASC`,
     );
     return { roles: res.rows };
+  }
+
+  private async assertAssignableRole(ctx: TenantAuthContext, roleId: string) {
+    if (ctx.roles.includes('business_owner')) return;
+    const required = await this.db.query(`SELECT p.code FROM role_permissions rp JOIN permissions p ON p.id=rp.permission_id WHERE rp.role_id=$1`, [roleId]);
+    if (required.rows.some((r) => !ctx.permissions.includes(r.code))) throw new ForbiddenException('You cannot assign a role with permissions beyond your own.');
+  }
+
+  private async validateBranches(ctx: TenantAuthContext, roleCode: string, branchIds?: string[]) {
+    if (['branch_manager', 'staff_member'].includes(roleCode) && !branchIds?.length) throw new BadRequestException('Choose at least one branch for this role.');
+    if (!branchIds?.length) return;
+    if (ctx.allowedBranchIds !== null && branchIds.some((id) => !ctx.allowedBranchIds!.includes(id))) throw new ForbiddenException('Branch access denied.');
+    const result = await this.db.withTenant(ctx.tenantId, (client) => client.query(`SELECT id FROM branches WHERE tenant_id=$1 AND status='active' AND id=ANY($2::uuid[])`, [ctx.tenantId, branchIds]));
+    if (result.rows.length !== new Set(branchIds).size) throw new BadRequestException('One or more branches are unavailable.');
   }
 
   @Post('users/invite')
@@ -85,6 +99,8 @@ export class UsersRolesController {
       throw new ForbiddenException('Business administrators cannot assign platform-level roles.');
     }
 
+    await this.assertAssignableRole(ctx, roleRes.rows[0].id);
+    await this.validateBranches(ctx, d.roleCode, d.branchIds);
     const email = d.email.trim().toLowerCase();
     const generatedTempPassword = d.temporaryPassword || `Bw!${crypto.randomBytes(12).toString('base64url')}`;
     let createdNewUser = false;
@@ -156,6 +172,11 @@ export class UsersRolesController {
     @CurrentUser() actor: AuthenticatedUser,
     @Req() req: any,
   ) {
+    if (!body?.roleCode || (body.branchIds && (!Array.isArray(body.branchIds) || body.branchIds.some((id) => !z.string().uuid().safeParse(id).success)))) throw new BadRequestException('Invalid role or branches.');
+    if (userId === actor.userId) throw new BadRequestException('Ask another authorized owner to change your role.');
+    const membership = await this.db.query(`SELECT r.code FROM user_roles ur JOIN roles r ON r.id=ur.role_id WHERE ur.tenant_id=$1 AND ur.user_id=$2 AND ur.is_active=TRUE`, [ctx.tenantId, userId]);
+    if (!membership.rowCount) throw new BadRequestException('Team member not found.');
+    if (membership.rows.some((r) => r.code === 'business_owner') && !ctx.roles.includes('business_owner')) throw new ForbiddenException('Only an owner can change another owner.');
     const roleRes = await this.db.query(
       `SELECT id, scope FROM roles WHERE code = $1 AND tenant_id IS NULL LIMIT 1`,
       [body.roleCode],
@@ -165,6 +186,8 @@ export class UsersRolesController {
       throw new ForbiddenException('Cannot elevate user to platform role.');
     }
 
+    await this.assertAssignableRole(ctx, roleRes.rows[0].id);
+    await this.validateBranches(ctx, body.roleCode, body.branchIds);
     await this.db.withSystemTransaction(async (client) => {
       await client.query(`DELETE FROM user_roles WHERE tenant_id = $1 AND user_id = $2`, [
         ctx.tenantId,

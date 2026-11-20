@@ -1,281 +1,116 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { CheckCircle2, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Building2, CheckCircle2, ShieldCheck, Users } from 'lucide-react';
 import { apiRequest } from '../../services/api';
 import { useAuth } from '../../stores/authStore';
 
 export const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
-  const { loginSuccess } = useAuth();
+  const { loginSuccess, setLanguage } = useAuth();
+  const uid = useId();
   const [form, setForm] = useState({
-    businessName: '',
-    businessEmail: '',
-    phoneNumber: '+254',
-    industryCode: 'retail',
-    businessSize: 'small',
-    countryCode: 'KE',
-    preferredLanguage: 'en',
-    firstName: '',
-    lastName: '',
-    email: '',
-    password: '',
+    businessName: '', businessEmail: '', phoneNumber: '', industryCode: 'retail', businessSize: 'micro',
+    preferredLanguage: 'en' as 'en' | 'sw', firstName: '', lastName: '', email: '', password: '', confirmPassword: '',
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const sw = form.preferredLanguage === 'sw';
+  const tr = (en: string, kiswahili: string) => sw ? kiswahili : en;
+  const field = (name: string) => `${uid}-${name}`;
+  const input = 'w-full min-w-0 px-3.5 py-3 text-sm bg-[#081c30] border border-[#35536a] text-white placeholder-slate-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#2ED3C2]/60 focus:border-[#2ED3C2]';
+  const label = 'block text-xs font-semibold text-slate-200 mb-1.5';
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     setError('');
+    if (form.password !== form.confirmPassword) {
+      setError(tr('The passwords do not match.', 'Nenosiri halilingani.'));
+      return;
+    }
     setLoading(true);
     try {
+      const { confirmPassword: _confirmation, phoneNumber, ...rest } = form;
       const res = await apiRequest('/auth/register', {
-        method: 'POST',
-        body: {
-          ...form,
-          businessEmail: form.businessEmail || form.email,
-        },
-        skipAuth: true,
+        method: 'POST', skipAuth: true,
+        body: { ...rest, businessEmail: form.businessEmail.trim() || form.email.trim(), countryCode: 'KE', ...(phoneNumber.trim() ? { phoneNumber: phoneNumber.trim() } : {}) },
       });
+      setLanguage(form.preferredLanguage);
       await loginSuccess(res);
       navigate('/app/onboarding');
     } catch (err: any) {
-      const fieldErrs = err.details?.errors
-        ? Object.entries(err.details.errors)
-            .map(([k, v]) => `${k}: ${(v as string[]).join(', ')}`)
-            .join(' · ')
-        : '';
-      setError(fieldErrs || err.message || 'Registration failed.');
+      const errors = err.details?.errors;
+      const fieldErrors = errors ? Object.values(errors).flat().join(' · ') : '';
+      setError(fieldErrors || err.message || tr('Could not create your workspace. Please try again.', 'Imeshindikana kuunda nafasi yako. Jaribu tena.'));
     } finally {
       setLoading(false);
     }
   };
 
-  const inputCls =
-    'w-full px-3.5 py-2.5 text-sm bg-[#041527] border border-white/15 text-white placeholder-slate-500 rounded-lg focus:outline-none focus:border-[#2ED3C2]';
-
   return (
-    <div className="py-14 sm:py-20 px-4 bg-[#041527] text-white">
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
-        {/* Left Rail: Unique Launchpad Message (What Happens in the Next 60 Seconds) */}
-        <div className="lg:col-span-5 space-y-6 lg:sticky lg:top-24">
+    <div className="bg-[#041527] text-white px-4 py-12 sm:py-16">
+      <div className="max-w-6xl mx-auto grid lg:grid-cols-12 gap-10 lg:gap-14 items-start">
+        <div className="lg:col-span-5 lg:sticky lg:top-24 space-y-7">
           <div>
-            <div className="text-xs font-bold uppercase tracking-widest text-[#2ED3C2]">60-Second Workspace Launch</div>
-            <h1 className="mt-2 text-3xl sm:text-4xl font-extrabold tracking-tight text-white leading-tight">
-              Launch Your Isolated <span className="text-[#2ED3C2]">SME Workspace.</span>
-            </h1>
-            <div className="teal-bar mt-4" />
-            <p className="mt-4 text-sm text-slate-300 leading-relaxed">
-              Your workspace starts 100% clean — zero fake demo numbers, zero shared tables. Here is exactly what happens the moment you register:
-            </p>
+            <div className="text-xs font-bold uppercase tracking-[.16em] text-[#2ED3C2]">{tr('GET STARTED', 'ANZA SASA')}</div>
+            <h1 className="mt-3 text-3xl sm:text-4xl font-extrabold tracking-tight leading-tight">{tr('A clearer view of your business starts here.', 'Anza kuona biashara yako kwa uwazi zaidi.')}</h1>
+            <p className="mt-4 text-sm text-slate-300 leading-7">{tr('Create your business workspace, add your records and make decisions with confidence.', 'Fungua nafasi ya biashara yako, weka rekodi zako na ufanye maamuzi kwa ujasiri.')}</p>
           </div>
-
           <div className="space-y-4">
             {[
-              {
-                step: '01',
-                title: 'Dedicated Tenant & Main Branch Created',
-                desc: 'Configured in KES (Africa/Nairobi timezone) with industry-matched KPIs and AI suggestions.',
-              },
-              {
-                step: '02',
-                title: 'Upload Your First Spreadsheet or Log Daily Entries',
-                desc: 'Bring your existing sales, M-Pesa statement logs, stock, or expense sheets — validated automatically.',
-              },
-              {
-                step: '03',
-                title: 'Instant Health Score, Forecasts & AI Guidance',
-                desc: 'Start asking business questions in English or Kiswahili and scale your plan only when ready.',
-              },
-            ].map((item) => (
-              <div key={item.step} className="slide-card rounded-xl p-4 flex items-start gap-3.5">
-                <span className="text-lg font-extrabold text-[#2ED3C2] shrink-0">{item.step}</span>
-                <div>
-                  <div className="text-sm font-bold text-white">{item.title}</div>
-                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">{item.desc}</p>
-                </div>
-              </div>
-            ))}
+              { icon: Building2, title: tr('Set up your business', 'Sanidi biashara yako'), text: tr('Start with your business details and a main branch.', 'Anza kwa kuweka maelezo ya biashara na tawi kuu.') },
+              { icon: CheckCircle2, title: tr('Bring in your records', 'Weka rekodi zako'), text: tr('Add daily sales or import a file when you are ready.', 'Weka mauzo ya kila siku au pakia faili ukiwa tayari.') },
+              { icon: Users, title: tr('Work with your team', 'Fanya kazi na timu yako'), text: tr('Invite team members to use their own accounts with role-based access.', 'Alika wanatimu watumie akaunti zao zenye ruhusa kulingana na jukumu.') },
+            ].map(({ icon: Icon, title, text }) => <div key={title} className="flex gap-3.5">
+              <div className="w-9 h-9 rounded-lg bg-[#153c4d] text-[#69e1d8] grid place-items-center shrink-0"><Icon size={17} /></div>
+              <div><div className="text-sm font-semibold text-white">{title}</div><p className="mt-1 text-xs leading-6 text-slate-400">{text}</p></div>
+            </div>)}
           </div>
-
-          <div className="p-4 rounded-xl bg-[#2ED3C2]/10 border border-[#2ED3C2]/25 space-y-2 text-xs text-slate-200">
-            <div className="flex items-center gap-2 font-bold text-[#2ED3C2]">
-              <ShieldCheck className="w-4 h-4" /> Clear Billing &amp; Non-Custodial Guarantee
-            </div>
-            <ul className="space-y-1 text-slate-300">
-              <li className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-[#2ED3C2]" /> No customer payments pass through BizWave.</li>
-              <li className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-[#2ED3C2]" /> Only BizWave subscription &amp; add-on services are billed.</li>
-              <li className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-[#2ED3C2]" /> You own 100% of your uploaded business data.</li>
-            </ul>
-            <div className="pt-1">
-              <Link to="/pricing" className="font-bold text-[#2ED3C2] hover:underline">
-                Compare KES plans &amp; add-on services →
-              </Link>
-            </div>
+          <div className="flex gap-3 p-4 rounded-xl border border-[#2b5662] bg-[#102d3d] text-xs leading-6 text-slate-300">
+            <ShieldCheck className="w-5 h-5 text-[#62ded4] shrink-0 mt-0.5" />
+            <span>{tr('Your business records are private to your workspace. You decide which team members can access them.', 'Rekodi za biashara yako ni za faragha. Unachagua wanatimu wanaoweza kuziona.')}</span>
           </div>
         </div>
 
-        {/* Right: Clean Registration Form */}
-        <div className="lg:col-span-7">
-          <form onSubmit={handleSubmit} className="slide-card p-6 sm:p-8 rounded-2xl space-y-5">
-            <div className="text-xs font-bold uppercase tracking-wider text-[#2ED3C2]">1. Business Profile</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Business Name *</label>
-                <input
-                  required
-                  value={form.businessName}
-                  onChange={(e) => setForm({ ...form, businessName: e.target.value })}
-                  className={inputCls}
-                  placeholder="e.g. Rift Valley Hardware Ltd"
-                />
-              </div>
+        <form onSubmit={handleSubmit} className="lg:col-span-7 rounded-2xl border border-[#2b465d] bg-[#10263b] p-5 sm:p-8 space-y-7 shadow-2xl shadow-black/20">
+          <div className="flex flex-wrap justify-between items-start gap-4">
+            <div><h2 className="text-xl font-bold tracking-tight">{tr('Create your workspace', 'Fungua nafasi yako')}</h2><p className="mt-1.5 text-xs leading-5 text-slate-400">{tr('Fields marked * are required.', 'Sehemu zenye * zinahitajika.')}</p></div>
+            <div><label htmlFor={field('language')} className="sr-only">{tr('Language', 'Lugha')}</label><select id={field('language')} value={form.preferredLanguage} onChange={(e) => setForm({ ...form, preferredLanguage: e.target.value as 'en' | 'sw' })} className="rounded-lg bg-[#081c30] border border-[#35536a] text-slate-200 text-xs py-2 px-3"><option value="en">English</option><option value="sw">Kiswahili</option></select></div>
+          </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Business Industry *</label>
-                <select
-                  value={form.industryCode}
-                  onChange={(e) => setForm({ ...form, industryCode: e.target.value })}
-                  className={inputCls}
-                >
-                  <option value="retail">Retail &amp; Supermarkets</option>
-                  <option value="restaurant">Restaurants &amp; Cafes</option>
-                  <option value="wholesale">Wholesale &amp; Distribution</option>
-                  <option value="salon">Salons &amp; Wellness</option>
-                  <option value="professional_services">Professional Services</option>
-                  <option value="general_sme">General SME</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Team Size *</label>
-                <select
-                  value={form.businessSize}
-                  onChange={(e) => setForm({ ...form, businessSize: e.target.value })}
-                  className={inputCls}
-                >
-                  <option value="micro">Micro (1–9 staff)</option>
-                  <option value="small">Small (10–49 staff)</option>
-                  <option value="medium">Medium (50–249 staff)</option>
-                  <option value="enterprise">Enterprise (250+)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Country</label>
-                <select
-                  value={form.countryCode}
-                  onChange={(e) => setForm({ ...form, countryCode: e.target.value })}
-                  className={inputCls}
-                >
-                  <option value="KE">Kenya (KES)</option>
-                  <option value="UG">Uganda</option>
-                  <option value="TZ">Tanzania</option>
-                  <option value="RW">Rwanda</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Preferred Language</label>
-                <select
-                  value={form.preferredLanguage}
-                  onChange={(e) => setForm({ ...form, preferredLanguage: e.target.value })}
-                  className={inputCls}
-                >
-                  <option value="en">English</option>
-                  <option value="sw">Kiswahili</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Business Email *</label>
-                <input
-                  type="email"
-                  required
-                  value={form.businessEmail}
-                  onChange={(e) => setForm({ ...form, businessEmail: e.target.value })}
-                  className={inputCls}
-                  placeholder="info@yourbusiness.co.ke"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Contact Phone</label>
-                <input
-                  value={form.phoneNumber}
-                  onChange={(e) => setForm({ ...form, phoneNumber: e.target.value })}
-                  className={inputCls}
-                  placeholder="+254712345678"
-                />
-              </div>
+          <fieldset className="space-y-4">
+            <legend className="w-full border-b border-white/10 pb-3 mb-1 text-xs font-bold uppercase tracking-[.12em] text-[#72e1d9]">01 / {tr('Business details', 'Maelezo ya biashara')}</legend>
+            <div><label className={label} htmlFor={field('business')}>{tr('Business name', 'Jina la biashara')} *</label><input id={field('business')} className={input} required minLength={2} maxLength={160} autoComplete="organization" value={form.businessName} onChange={(e) => setForm({ ...form, businessName: e.target.value })} placeholder={tr('e.g. Wanjiku Hardware', 'mf. Duka la Wanjiku')} /></div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div><label className={label} htmlFor={field('industry')}>{tr('Type of business', 'Aina ya biashara')} *</label><select id={field('industry')} className={input} value={form.industryCode} onChange={(e) => setForm({ ...form, industryCode: e.target.value })}>
+                <option value="retail">{tr('Retail & shops', 'Maduka')}</option><option value="restaurant">{tr('Restaurants & cafés', 'Migahawa')}</option><option value="wholesale">{tr('Wholesale & distribution', 'Jumla na usambazaji')}</option><option value="salon">{tr('Salons & wellness', 'Saluni na afya')}</option><option value="professional_services">{tr('Professional services', 'Huduma za kitaalamu')}</option><option value="general_sme">{tr('Other business', 'Biashara nyingine')}</option>
+              </select></div>
+              <div><label className={label} htmlFor={field('size')}>{tr('Team size', 'Idadi ya wanatimu')} *</label><select id={field('size')} className={input} value={form.businessSize} onChange={(e) => setForm({ ...form, businessSize: e.target.value })}>
+                <option value="micro">1–9</option><option value="small">10–49</option><option value="medium">50–249</option><option value="enterprise">250+</option>
+              </select></div>
+              <div><label className={label} htmlFor={field('phone')}>{tr('Business phone', 'Simu ya biashara')} <span className="font-normal text-slate-400">({tr('optional', 'si lazima')})</span></label><input id={field('phone')} type="tel" autoComplete="tel" className={input} minLength={7} maxLength={32} value={form.phoneNumber} onChange={(e) => setForm({ ...form, phoneNumber: e.target.value })} placeholder="+254 712 345 678" /></div>
+              <div><label className={label} htmlFor={field('businessEmail')}>{tr('Business email', 'Barua pepe ya biashara')} <span className="font-normal text-slate-400">({tr('optional', 'si lazima')})</span></label><input id={field('businessEmail')} type="email" autoComplete="email" className={input} value={form.businessEmail} onChange={(e) => setForm({ ...form, businessEmail: e.target.value })} placeholder="info@business.co.ke" /></div>
             </div>
+            <p className="text-xs leading-5 text-slate-400">{tr('This workspace is set up for Kenya, using KES and the Nairobi time zone.', 'Nafasi hii imesanidiwa kwa Kenya, ikitumia KES na saa za Nairobi.')}</p>
+          </fieldset>
 
-            <div className="pt-2 border-t border-white/10 text-xs font-bold uppercase tracking-wider text-[#2ED3C2]">
-              2. Owner Account Credentials
+          <fieldset className="space-y-4">
+            <legend className="w-full border-b border-white/10 pb-3 mb-1 text-xs font-bold uppercase tracking-[.12em] text-[#72e1d9]">02 / {tr('Your owner account', 'Akaunti ya mmiliki')}</legend>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div><label className={label} htmlFor={field('first')}>{tr('First name', 'Jina la kwanza')} *</label><input id={field('first')} className={input} required autoComplete="given-name" maxLength={100} value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} /></div>
+              <div><label className={label} htmlFor={field('last')}>{tr('Last name', 'Jina la mwisho')} *</label><input id={field('last')} className={input} required autoComplete="family-name" maxLength={100} value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} /></div>
+              <div className="sm:col-span-2"><label className={label} htmlFor={field('email')}>{tr('Email for sign-in', 'Barua pepe ya kuingia')} *</label><input id={field('email')} className={input} type="email" required autoComplete="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="you@example.com" /></div>
+              <div><label className={label} htmlFor={field('password')}>{tr('Password', 'Nenosiri')} *</label><input id={field('password')} className={input} type={showPassword ? 'text' : 'password'} required minLength={8} pattern="(?=.*[A-Z])(?=.*[0-9]).{8,}" title={tr('At least 8 characters, including an uppercase letter and a number.', 'Angalau herufi 8, ikijumuisha herufi kubwa na namba.')} autoComplete="new-password" aria-describedby={field('password-help')} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
+              <div><label className={label} htmlFor={field('confirm')}>{tr('Confirm password', 'Thibitisha nenosiri')} *</label><input id={field('confirm')} className={input} type={showPassword ? 'text' : 'password'} required minLength={8} autoComplete="new-password" value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} /></div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-200 mb-1.5">First Name *</label>
-                <input
-                  required
-                  value={form.firstName}
-                  onChange={(e) => setForm({ ...form, firstName: e.target.value })}
-                  className={inputCls}
-                  placeholder="Grace"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Last Name *</label>
-                <input
-                  required
-                  value={form.lastName}
-                  onChange={(e) => setForm({ ...form, lastName: e.target.value })}
-                  className={inputCls}
-                  placeholder="Wanjiku"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Login Email *</label>
-                <input
-                  type="email"
-                  required
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  className={inputCls}
-                  placeholder="owner@yourbusiness.co.ke"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-200 mb-1.5">Password (min 8 chars) *</label>
-                <input
-                  type="password"
-                  required
-                  minLength={8}
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  className={inputCls}
-                  placeholder="Strong password"
-                />
-              </div>
-            </div>
+            <p id={field('password-help')} className="text-xs text-slate-400">{tr('Use at least 8 characters, including an uppercase letter and a number.', 'Tumia angalau herufi 8, ikijumuisha herufi kubwa na namba.')}</p>
+            <label className="inline-flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" checked={showPassword} onChange={(e) => setShowPassword(e.target.checked)} className="accent-[#2ED3C2]" />{tr('Show passwords', 'Onyesha manenosiri')}</label>
+          </fieldset>
 
-            {error && <div className="p-3 rounded-lg bg-rose-500/15 border border-rose-400/30 text-rose-200 text-xs">{error}</div>}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 rounded-xl bg-[#2ED3C2] text-[#041527] text-sm font-bold hover:bg-[#5ce2d4] disabled:opacity-50 transition-colors"
-            >
-              {loading ? 'Provisioning isolated workspace...' : 'Create Business Workspace'}
-            </button>
-
-            <div className="text-center text-xs text-slate-400">
-              Already have a workspace?{' '}
-              <Link to="/login" className="font-semibold text-[#2ED3C2] hover:underline">
-                Sign in here
-              </Link>
-            </div>
-          </form>
-        </div>
+          {error && <div role="alert" className="p-3 rounded-lg bg-rose-500/15 border border-rose-400/40 text-rose-200 text-xs leading-5">{error}</div>}
+          <button type="submit" disabled={loading} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-[#2ED3C2] text-[#041527] text-sm font-bold hover:bg-[#5ce2d4] disabled:opacity-50 transition-colors">{loading ? tr('Creating your workspace…', 'Inafungua nafasi yako…') : tr('Create workspace', 'Fungua nafasi')} <ArrowRight size={16} /></button>
+          <p className="text-center text-xs text-slate-400">{tr('Already have an account?', 'Tayari una akaunti?')} <Link to="/login" className="font-semibold text-[#70e5db] hover:underline">{tr('Sign in', 'Ingia')}</Link></p>
+        </form>
       </div>
     </div>
   );

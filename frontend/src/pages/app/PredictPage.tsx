@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Area,
@@ -9,60 +9,77 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { AlertTriangle, Lock, Play, ShieldAlert, TrendingUp, Users } from 'lucide-react';
+import { AlertTriangle, Award, Lock, Play, ShieldAlert, TrendingUp, Users } from 'lucide-react';
 import { apiRequest } from '../../services/api';
 import { useAuth } from '../../stores/authStore';
 import { formatKes } from '../../i18n/translations';
+import { formatCompactAxis, formatKesPrecise } from '../../utils/format';
+
 
 export const PredictPage: React.FC = () => {
-  const { activeOrg, selectedBranchId, hasPermission, hasFeature } = useAuth();
-  const [forecastType, setForecastType] = useState<'sales' | 'demand' | 'cashflow'>('sales');
+  const { activeOrg, selectedBranchId, hasPermission, hasFeature, language } = useAuth();
+  const tr = (en: string, sw: string) => language === 'sw' ? sw : en;
+  const [forecastType, setForecastType] = useState<'sales' | 'demand' | 'cashflow'>(() => hasPermission('predict:sales') ? 'sales' : hasPermission('predict:demand') ? 'demand' : 'cashflow');
   const [horizonDays, setHorizonDays] = useState(30);
+  const [startingCashBalance, setStartingCashBalance] = useState('');
   const [products, setProducts] = useState<any[]>([]);
   const [selectedProductId, setSelectedProductId] = useState('');
 
   const [activeRun, setActiveRun] = useState<any | null>(null);
+  const [proBenchmark, setProBenchmark] = useState<any | null>(null);
   const [runHistory, setRunHistory] = useState<any[]>([]);
   const [anomalies, setAnomalies] = useState<any[]>([]);
   const [stockAlerts, setStockAlerts] = useState<any[]>([]);
   const [rfm, setRfm] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [forecastError, setForecastError] = useState(false);
+  const [forecastLoading, setForecastLoading] = useState(true);
+  const loadNumber = useRef(0);
 
   const canPredictBasic = hasFeature('predict_basic');
   const canPredictAdv = hasFeature('predict_advanced');
 
-  const loadExisting = async () => {
-    if (!canPredictBasic) return;
+  const loadExisting = async (selectLatest = false) => {
+    if (!canPredictBasic) { setForecastLoading(false); return; }
+    const request = ++loadNumber.current;
+    setForecastLoading(true); setForecastError(false);
     try {
-      const [fcRes, invRes] = await Promise.all([
-        apiRequest('/forecasts'),
-        hasPermission('inventory:read') ? apiRequest('/analytics/inventory') : Promise.resolve({ inventory: [] }),
+      const [fcRes, invRes, proResult] = await Promise.all([
+        apiRequest(`/forecasts?branchId=${encodeURIComponent(selectedBranchId)}`),
+        hasPermission('inventory:read') ? apiRequest(`/inventory?branchId=${encodeURIComponent(selectedBranchId)}`) : Promise.resolve({ inventory: [] }),
+        hasPermission('analytics:read') && hasPermission('sales:read') && hasPermission('predict:sales')
+          ? apiRequest(`/analytics/pro-insights?days=45&branchId=${encodeURIComponent(selectedBranchId)}&horizon=14`)
+              .then((data) => ({ data, failed: false })).catch(() => ({ data: null, failed: true }))
+          : Promise.resolve({ data: null, failed: false }),
       ]);
+      if (request !== loadNumber.current) return;
       setRunHistory(fcRes.forecastRuns || []);
       setAnomalies(fcRes.anomalies || []);
       setStockAlerts(fcRes.stockAlerts || []);
-      const uniqueProds = Array.from(
-        new Map((invRes.inventory || []).map((i: any) => [i.product_id, i])).values(),
-      );
+      setProBenchmark(proResult.data); setForecastError(proResult.failed);
+      const uniqueProds: any[] = Array.from(new Map((invRes.inventory || []).map((i: any) => [i.product_id, i])).values());
       setProducts(uniqueProds);
-      if (uniqueProds.length > 0 && !selectedProductId) {
-        setSelectedProductId((uniqueProds[0] as any).product_id);
-      }
-      if (fcRes.forecastRuns?.[0] && !activeRun) {
+      setSelectedProductId((previous) => uniqueProds.some((p) => p.product_id === previous) ? previous : (uniqueProds[0]?.product_id || ''));
+      if (selectLatest && fcRes.forecastRuns?.[0]) {
         const detail = await apiRequest(`/forecasts/${fcRes.forecastRuns[0].id}`);
-        setActiveRun(detail);
+        if (request === loadNumber.current) setActiveRun(detail);
       }
     } catch (e: any) {
-      setError(e.message);
+      if (request === loadNumber.current) { setError(e.message || 'Could not load forecasts.'); setForecastError(true); }
+    } finally {
+      if (request === loadNumber.current) setForecastLoading(false);
     }
   };
 
   useEffect(() => {
-    loadExisting();
+    setActiveRun(null); setProBenchmark(null); setRunHistory([]); setAnomalies([]); setStockAlerts([]); setRfm(null); setError('');
+    loadExisting(true);
+    return () => { loadNumber.current++; };
   }, [activeOrg?.id, selectedBranchId]);
 
   const handleRunForecast = async () => {
+    if (forecastType === 'cashflow' && (startingCashBalance.trim() === '' || !Number.isFinite(Number(startingCashBalance)))) { setError(tr('Enter your current cash balance first.', 'Weka salio lako la sasa kwanza.')); return; }
     setBusy(true);
     setError('');
     try {
@@ -73,6 +90,7 @@ export const PredictPage: React.FC = () => {
           horizonDays,
           branchId: selectedBranchId,
           productId: forecastType === 'demand' ? selectedProductId : undefined,
+          startingCashBalance: forecastType === 'cashflow' ? Number(startingCashBalance) : undefined,
         },
       });
       setActiveRun(res);
@@ -118,63 +136,129 @@ export const PredictPage: React.FC = () => {
         <Lock className="w-10 h-10 text-amber-500 mx-auto" />
         <h1 className="text-xl font-bold text-navy-950">BizWave Predict Requires Growth or Higher</h1>
         <p className="text-sm text-slate-600">
-          Your organization is currently on the <strong>{activeOrg?.plan_code.toUpperCase()}</strong> plan. Upgrade in Billing to unlock backtested forecasting, stockout prediction, and anomaly detection.
+          Your organization is currently on the <strong>{activeOrg?.plan_code.toUpperCase()}</strong> plan. Forecasting is not enabled for this plan. Online plan changes are not available yet; contact your administrator.
         </p>
         <Link to="/app/billing" className="inline-block mt-2 px-5 py-2.5 rounded-xl bg-navy-950 text-white text-sm font-semibold">
-          Upgrade Subscription Plan
+          View plan details
         </Link>
       </div>
     );
   }
 
+  const forecastSeries = Array.isArray(proBenchmark?.forecast?.series) ? proBenchmark.forecast.series : [];
+  const futurePoints = forecastSeries.filter((p: any) => p.is_forecast && p.predicted != null);
+  const trendSlope = proBenchmark?.summary?.trend_slope_kes_day;
+  const hasTrend = Number(proBenchmark?.recorded_days) >= 4 && trendSlope != null && Number.isFinite(Number(trendSlope));
+  const recordedDays = proBenchmark?.recorded_days;
+  const canReadSalesHistory = hasPermission('analytics:read') && hasPermission('sales:read');
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="predict-page">
+      <header className="predict-page-header">
         <div>
-          <div className="text-xs font-bold uppercase tracking-wider text-teal-600">Look Ahead Before Problems Hit</div>
-          <h1 className="mt-1 text-2xl font-extrabold text-navy-950">BizWave Predict</h1>
-          <p className="text-sm text-slate-500">
-            Forecast upcoming sales, stock demand, and 30-day cash flow, spot unusual spikes or dips early, and identify customers at risk of churning.
-          </p>
+          <div className="p-eyebrow">{tr('BIZWAVE PREDICT', 'UTABIRI WA BIZWAVE')}</div>
+          <h1 className="p-title">{tr('Plan for what’s next', 'Panga yajayo')}</h1>
+          <p className="p-subtitle">{tr('Use your sales history to explore the 14 days after your most recent record.', 'Tumia historia ya mauzo kuona makadirio ya siku 14 baada ya rekodi yako ya mwisho.')}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {canPredictAdv && hasPermission('predict:sales') && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={handleScanAnomalies}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-navy-950 hover:bg-slate-50"
-            >
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> Scan Anomalies
-            </button>
-          )}
-          {canPredictAdv && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={handleRunRfm}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-navy-950 hover:bg-slate-50"
-            >
-              <Users className="w-3.5 h-3.5 text-teal-600" /> Run RFM Churn Model
-            </button>
-          )}
-        </div>
+        {hasPermission('predict:sales') && <div className="predict-horizon"><TrendingUp size={14} />{tr('14-day sales outlook', 'Makadirio ya mauzo ya siku 14')}</div>}
+      </header>
+
+      {hasPermission('predict:sales') && <>
+      <div className="predict-kpis" aria-busy={forecastLoading}>
+        <div className="p-panel dashboard-kpi"><div className="dashboard-kpi-top"><span>{tr('PROJECTED 14-DAY REVENUE', 'MAKADIRIO YA MAPATO SIKU 14')}</span><span className="dashboard-kpi-icon"><TrendingUp size={16} /></span></div>{forecastLoading ? <div className="dashboard-skeleton" /> : <div className={`dashboard-kpi-value ${futurePoints.length ? '' : 'is-empty'}`}>{futurePoints.length ? formatKesPrecise(proBenchmark.forecast.projected_14d_revenue) : '—'}</div>}<div className="dashboard-kpi-note">{tr('Estimate, not guaranteed revenue', 'Makadirio, si mapato ya uhakika')}</div></div>
+        <div className="p-panel dashboard-kpi"><div className="dashboard-kpi-top"><span>{tr('RECENT TREND', 'MWENENDO WA HIVI KARIBUNI')}</span><span className="dashboard-kpi-icon"><TrendingUp size={16} /></span></div>{forecastLoading ? <div className="dashboard-skeleton" /> : <div className={`dashboard-kpi-value ${hasTrend ? '' : 'is-empty'}`}>{hasTrend ? Number(trendSlope) > 0 ? tr('Upward', 'Unaongezeka') : Number(trendSlope) < 0 ? tr('Downward', 'Unapungua') : tr('Steady', 'Hautofautiani') : '—'}</div>}<div className="dashboard-kpi-note">{tr('Based on recorded daily sales', 'Kulingana na mauzo yaliyorekodiwa')}</div></div>
+        <div className="p-panel dashboard-kpi"><div className="dashboard-kpi-top"><span>{tr('RECORDED SALES DAYS', 'SIKU ZENYE MAUZO')}</span><span className="dashboard-kpi-icon"><Award size={16} /></span></div>{forecastLoading ? <div className="dashboard-skeleton" /> : <div className={`dashboard-kpi-value ${recordedDays == null ? 'is-empty' : ''}`}>{recordedDays != null && Number.isFinite(Number(recordedDays)) ? Number(recordedDays).toLocaleString('en-KE') : '—'}</div>}<div className="dashboard-kpi-note">{tr('Days available to the model', 'Siku zinazopatikana kwa utabiri')}</div></div>
       </div>
+      <section className="p-panel dashboard-chart-panel predict-chart-panel">
+        <div className="dashboard-panel-heading"><div><h2 className="p-panel-title">{tr('Sales forecast & estimate range', 'Utabiri wa mauzo na wigo wa makadirio')}</h2><p className="p-panel-note mt-1">{tr('The shaded area is an approximate range, not a validated probability. Missing days are treated as zero; forecasts can be wrong.', 'Eneo lenye kivuli ni wigo wa makadirio, si uwezekano uliothibitishwa. Siku zisizo na rekodi huhesabiwa kama sifuri; utabiri unaweza kukosea.')}</p></div></div>
+        {forecastLoading ? <div className="dashboard-chart-placeholder animate-pulse" role="status" aria-label={tr('Loading forecast', 'Inapakia utabiri')} /> : futurePoints.length ? <div className="predict-chart" role="img" aria-label={tr('Recorded sales and a 14-day forecast with an approximate estimate range', 'Mauzo yaliyorekodiwa na utabiri wa siku 14 wenye wigo wa makadirio')}>
+          <ResponsiveContainer width="100%" height="100%"><AreaChart data={forecastSeries.map((d: any) => ({ ...d, predicted: d.is_forecast ? d.predicted : null, band: d.lower_80 != null && d.upper_80 != null ? [Number(d.lower_80), Number(d.upper_80)] : null }))} margin={{ top: 20, right: 10, left: 2, bottom: 0 }}>
+            <defs><linearGradient id="predictionRange" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#55dbff" stopOpacity={0.40} /><stop offset="100%" stopColor="#55dbff" stopOpacity={0.08} /></linearGradient></defs>
+            <CartesianGrid stroke="#6089ad" strokeDasharray="2 5" />
+            <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#b1cee5' }} tickFormatter={(v) => String(v).slice(5)} axisLine={false} tickLine={false} minTickGap={28} />
+            <YAxis tick={{ fontSize: 10, fill: '#b1cee5' }} axisLine={false} tickLine={false} tickFormatter={formatCompactAxis} width={50} />
+            <Tooltip formatter={(value: any, name: any) => Array.isArray(value) ? [`${formatKesPrecise(value[0])} – ${formatKesPrecise(value[1])}`, tr('Estimate range', 'Wigo wa makadirio')] : [formatKesPrecise(value), name]} />
+            <Area isAnimationActive={false} type="monotone" dataKey="band" name={tr('Estimate range', 'Wigo wa makadirio')} stroke="none" fill="url(#predictionRange)" />
+            <Area isAnimationActive={false} type="monotone" dataKey="actual" name={tr('Recorded sales', 'Mauzo halisi')} stroke="#a6f7ff" strokeWidth={2.5} fill="none" />
+            <Area isAnimationActive={false} type="monotone" dataKey="predicted" name={tr('Forecast', 'Utabiri')} stroke="#69ddff" strokeWidth={2.2} strokeDasharray="5 4" fill="none" dot={{ r: 2.5, fill: '#9df8ff', strokeWidth: 0 }} />
+          </AreaChart></ResponsiveContainer>
+        </div> : <div className="dashboard-empty-chart"><TrendingUp size={25} /><strong>{canReadSalesHistory ? tr('Your forecast starts with sales records', 'Utabiri huanza kwa rekodi za mauzo') : tr('Sales history is unavailable to your role', 'Jukumu lako haliruhusu kuona historia ya mauzo')}</strong><p>{!canReadSalesHistory ? tr('Ask your administrator about access to sales analytics.', 'Uliza msimamizi wako kuhusu ruhusa ya kuona uchambuzi wa mauzo.') : forecastError || error ? tr('Forecast data could not be loaded. Please try again.', 'Imeshindikana kupakia utabiri. Jaribu tena.') : tr('Record at least three days of sales or import your history to see a forecast.', 'Rekodi mauzo ya angalau siku tatu au pakia historia kuona utabiri.')}</p>{canReadSalesHistory && hasPermission('imports:read') && <Link to="/app/analytics?tab=imports" className="p-button-secondary">{tr('Import records', 'Pakia rekodi')}</Link>}</div>}
+        <div className="dashboard-chart-footer"><div className="dashboard-legend"><span><i className="dashboard-legend-dot" />{tr('Recorded sales', 'Mauzo halisi')}</span><span><i className="dashboard-legend-forecast" />{tr('Forecast', 'Utabiri')}</span><span><i className="dashboard-legend-range" />{tr('Estimate range', 'Wigo wa makadirio')}</span></div><span>{futurePoints.length ? `${futurePoints[0].date} — ${futurePoints[futurePoints.length - 1].date}` : tr('14-day view', 'Mwonekano wa siku 14')}</span></div>
+      </section>
+
+      {/* Pro Data Scientist Multi-Model Champion Benchmark Panel */}
+      {proBenchmark?.forecast?.model_benchmarks?.length > 0 && (
+        <details className="p-panel predict-details"><summary>{tr('See how the forecast was selected', 'Angalia jinsi utabiri ulivyochaguliwa')}</summary>
+        <div className="bg-[#041527] text-white rounded-2xl p-5 border border-[#2ED3C2]/25 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-wider text-[#2ED3C2] flex items-center gap-1.5">
+                <Award className="w-3.5 h-3.5" /> {tr('Model selection', 'Uchaguzi wa modeli')}
+              </div>
+              <h2 className="text-base font-extrabold text-white mt-0.5">
+                {proBenchmark.forecast.champion_model}
+              </h2>
+            </div>
+            <div className="flex flex-wrap gap-3 text-xs">
+              <div className="px-3 py-1.5 rounded-xl bg-white/10">
+                <span className="text-slate-300">14d Projection:</span>{' '}
+                <strong className="text-[#2ED3C2]">{formatKes(proBenchmark.forecast.projected_14d_revenue)}</strong>
+              </div>
+              <div className="px-3 py-1.5 rounded-xl bg-white/10">
+                <span className="text-slate-300">30d Projection:</span>{' '}
+                <strong className="text-white">{formatKes(proBenchmark.forecast.projected_30d_revenue)}</strong>
+              </div>
+              <div className="px-3 py-1.5 rounded-xl bg-white/10">
+                <span className="text-slate-300">{tr('Daily break-even:', 'Kiwango cha kutopata hasara:')}</span>{' '}
+                <strong className="text-white">{formatKes(proBenchmark.summary?.breakeven_daily_revenue)}</strong>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-300">{proBenchmark.forecast.has_holdout ? tr('These errors are from the same small holdout used to select the model; they are not an independent accuracy test.', 'Makosa haya yanatokana na data ndogo iliyotumika kuchagua modeli; si kipimo huru cha usahihi.') : tr('There is not enough history for a holdout test yet.', 'Bado hakuna historia ya kutosha kufanya jaribio.')}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {proBenchmark.forecast.model_benchmarks.map((m: any) => (
+              <div
+                key={m.model}
+                className={`p-3.5 rounded-xl border ${
+                  m.selected ? 'bg-[#2ED3C2]/15 border-[#2ED3C2]' : 'bg-white/5 border-white/10'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-white">{m.model}</span>
+                  {m.selected && (
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#2ED3C2] text-[#041527]">
+                      CHAMPION
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 text-lg font-extrabold text-[#2ED3C2]">{m.mape_pct != null ? `${m.mape_pct}% MAPE` : tr('Not tested', 'Haijajaribiwa')}</div>
+                <div className="text-[11px] text-slate-300 mt-0.5">
+                  {m.rmse_kes != null ? `RMSE: ${formatKes(m.rmse_kes)}` : tr('More history needed', 'Historia zaidi inahitajika')}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        </details>
+      )}
+
+      </>}
 
       {/* Forecast Control Bar */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 flex flex-wrap items-end gap-4">
         <div>
-          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Forecast Domain</label>
+          <label className="block text-[11px] font-semibold text-slate-600 mb-1">{tr('Forecast type', 'Aina ya utabiri')}</label>
           <select
             value={forecastType}
             onChange={(e) => setForecastType(e.target.value as any)}
             className="px-3 py-2 text-xs font-semibold border border-slate-200 rounded-lg bg-white"
           >
-            {hasPermission('predict:sales') && <option value="sales">Sales Revenue Forecast</option>}
-            {hasPermission('predict:demand') && <option value="demand">Product Demand &amp; Stockout Forecast</option>}
+            {hasPermission('predict:sales') && <option value="sales">{tr('Sales', 'Mauzo')}</option>}
+            {hasPermission('predict:demand') && <option value="demand">{tr('Product demand', 'Mahitaji ya bidhaa')}</option>}
             {hasPermission('predict:cashflow') && (
               <option value="cashflow" disabled={!canPredictAdv}>
-                Cash-Flow Projection {!canPredictAdv ? '(Intelligence Plan)' : ''}
+                {tr('Cash-flow estimate', 'Makadirio ya mtiririko wa fedha')} {!canPredictAdv ? tr('(Intelligence plan)', '(Mpango wa Intelligence)') : ''}
               </option>
             )}
           </select>
@@ -182,7 +266,7 @@ export const PredictPage: React.FC = () => {
 
         {forecastType === 'demand' && products.length > 0 && (
           <div>
-            <label className="block text-[11px] font-semibold text-slate-600 mb-1">Product SKU</label>
+            <label className="block text-[11px] font-semibold text-slate-600 mb-1">{tr('Product', 'Bidhaa')}</label>
             <select
               value={selectedProductId}
               onChange={(e) => setSelectedProductId(e.target.value)}
@@ -197,16 +281,21 @@ export const PredictPage: React.FC = () => {
           </div>
         )}
 
+        {forecastType === 'cashflow' && <div className="max-w-md">
+          <label htmlFor="starting-cash" className="block text-[11px] font-semibold text-slate-600 mb-1">{tr('Current whole-business cash balance (KES)', 'Salio la sasa la biashara nzima (KES)')}</label>
+          <input id="starting-cash" type="number" step="0.01" value={startingCashBalance} onChange={(e) => setStartingCashBalance(e.target.value)} className="px-3 py-2 text-xs border border-slate-200 rounded-lg" />
+          <p className="text-[11px] text-slate-500 mt-1">{tr('Enter the actual current balance. Estimates use reconciled cash records and may overlap with invoices; overdue items are excluded.', 'Weka salio halisi la sasa. Makadirio hutumia miamala iliyolinganishwa na yanaweza kuingiliana na ankara; madeni yaliyochelewa hayajumuishwi.')}</p>
+        </div>}
         <div>
-          <label className="block text-[11px] font-semibold text-slate-600 mb-1">Horizon</label>
+          <label className="block text-[11px] font-semibold text-slate-600 mb-1">{tr('Period', 'Kipindi')}</label>
           <select
             value={horizonDays}
             onChange={(e) => setHorizonDays(Number(e.target.value))}
             className="px-3 py-2 text-xs font-semibold border border-slate-200 rounded-lg bg-white"
           >
-            <option value={14}>14 Days</option>
-            <option value={30}>30 Days</option>
-            <option value={60}>60 Days</option>
+            <option value={14}>{tr('14 days', 'Siku 14')}</option>
+            <option value={30}>{tr('30 days', 'Siku 30')}</option>
+            <option value={60}>{tr('60 days', 'Siku 60')}</option>
           </select>
         </div>
 
@@ -217,7 +306,7 @@ export const PredictPage: React.FC = () => {
           className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-navy-950 text-white text-xs font-semibold hover:bg-navy-800 disabled:opacity-50"
         >
           <Play className="w-3.5 h-3.5" />
-          {busy ? 'Running Python Engine...' : 'Generate Validated Forecast'}
+          {busy ? tr('Calculating…', 'Inakokotoa…') : tr('Generate forecast', 'Tengeneza utabiri')}
         </button>
       </div>
 
@@ -244,8 +333,8 @@ export const PredictPage: React.FC = () => {
               </div>
               <p className="mt-1 text-xs text-slate-500">{activeRun.run.status_message}</p>
             </div>
-            <div className="text-right text-xs">
-              <div className="font-semibold text-navy-950">Model: <code>{activeRun.run.selected_algorithm}</code></div>
+            <div className="min-w-0 text-left text-xs sm:text-right">
+              <div className="font-semibold text-navy-950 break-words">Model: <code>{activeRun.run.selected_algorithm}</code></div>
               {activeRun.run.evaluation_metrics?.selected_model?.mape !== undefined && (
                 <div className="text-slate-500">
                   Backtest MAPE: <strong>{activeRun.run.evaluation_metrics.selected_model.mape}%</strong> (Baseline:{' '}
@@ -255,6 +344,7 @@ export const PredictPage: React.FC = () => {
             </div>
           </div>
 
+          {activeRun.run.forecast_type === 'cashflow' && activeRun.run.summary?.cashflow_provenance !== 'user_balance_and_reconciled_movements_v1' && <div className="p-3 rounded-lg bg-amber-50 text-amber-900 text-xs">{tr('This older estimate may use an opening balance rather than your current balance. Generate a new estimate before relying on it.', 'Makadirio haya ya zamani yanaweza kutumia salio la mwanzo badala ya salio la sasa. Tengeneza makadirio mapya kabla ya kuyatumia.')}</div>}
           {activeRun.run.status === 'insufficient_data' ? (
             <div className="p-5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-sm flex items-start gap-3">
               <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5" />
@@ -267,10 +357,12 @@ export const PredictPage: React.FC = () => {
             <>
               {/* Summary Metrics */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {Object.entries(activeRun.run.summary || {}).slice(0, 4).map(([k, v]: any) => (
-                  <div key={k} className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
-                    <div className="text-[10px] uppercase tracking-wider text-slate-500">{k.replace(/_/g, ' ')}</div>
-                    <div className="mt-1 text-base font-bold text-navy-950">
+                {(activeRun.run.forecast_type === 'cashflow'
+                  ? ['opening_cash_balance', 'projected_ending_balance', 'lowest_projected_balance', 'confirmed_obligations_total'].filter((key) => activeRun.run.summary?.[key] != null).map((key) => [key, activeRun.run.summary[key]])
+                  : Object.entries(activeRun.run.summary || {}).filter(([key]) => !key.includes('provenance')).slice(0, 4)).map(([k, v]: any) => (
+                  <div key={k} className="min-w-0 p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-500 break-words">{k.replace(/_/g, ' ')}</div>
+                    <div className="mt-1 text-base font-bold text-navy-950 break-words">
                       {typeof v === 'number' && !k.includes('days') && !k.includes('pct') && !k.includes('demand') && !k.includes('stock') && !k.includes('reorder')
                         ? formatKes(v)
                         : String(v)}
@@ -279,24 +371,24 @@ export const PredictPage: React.FC = () => {
                 ))}
               </div>
 
-              {/* Confidence Interval Area Chart */}
-              <div className="h-72">
+              {/* Shade the returned lower-to-upper estimate without inventing missing bounds. */}
+              <div className="predict-run-chart" role="img" aria-label={tr('Forecast values and estimate range', 'Thamani za utabiri na wigo wa makadirio')}>
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart
                     data={(activeRun.values || []).map((v: any) => ({
                       date: String(v.target_date).slice(5, 10),
-                      predicted: Number(v.predicted_value),
-                      lower: Number(v.lower_bound),
-                      upper: Number(v.upper_bound),
+                      predicted: v.predicted_value == null ? null : Number(v.predicted_value),
+                      band: v.lower_bound != null && v.upper_bound != null ? [Number(v.lower_bound), Number(v.upper_bound)] : null,
                     }))}
+                    margin={{ top: 12, right: 12, left: 0, bottom: 2 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748b' }} />
-                    <YAxis tick={{ fontSize: 11, fill: '#64748b' }} />
-                    <Tooltip />
-                    <Area type="monotone" dataKey="upper" name="Upper 90% CI" stroke="#94a3b8" fill="#cbd5e1" fillOpacity={0.25} strokeDasharray="3 3" />
-                    <Area type="monotone" dataKey="predicted" name="Predicted" stroke="#0D9488" fill="#0D9488" fillOpacity={0.18} strokeWidth={2.4} />
-                    <Area type="monotone" dataKey="lower" name="Lower 90% CI" stroke="#94a3b8" fill="#ffffff" fillOpacity={0.8} strokeDasharray="3 3" />
+                    <defs><linearGradient id="runEstimateRange" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#55dbff" stopOpacity={0.36} /><stop offset="100%" stopColor="#55dbff" stopOpacity={0.08} /></linearGradient></defs>
+                    <CartesianGrid strokeDasharray="2 5" stroke="#6089ad" />
+                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#b1cee5' }} minTickGap={24} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#b1cee5' }} tickFormatter={formatCompactAxis} width={48} />
+                    <Tooltip formatter={(value: any, name: any) => [Array.isArray(value) ? value.map((v) => Number(v).toLocaleString('en-KE')).join(' – ') : Number(value).toLocaleString('en-KE'), name]} />
+                    <Area isAnimationActive={false} type="monotone" dataKey="band" name={tr('Estimate range', 'Wigo wa makadirio')} stroke="none" fill="url(#runEstimateRange)" />
+                    <Area isAnimationActive={false} type="monotone" dataKey="predicted" name={tr('Forecast', 'Utabiri')} stroke="#8ef0ff" fill="none" strokeWidth={2.4} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -415,7 +507,7 @@ export const PredictPage: React.FC = () => {
               <button
                 key={r.id}
                 type="button"
-                onClick={async () => setActiveRun(await apiRequest(`/forecasts/${r.id}`))}
+                onClick={async () => { try { setError(''); setActiveRun(await apiRequest(`/forecasts/${r.id}`)); } catch (e: any) { setError(e.message || 'Could not load this forecast.'); } }}
                 className="px-3 py-2 rounded-xl border border-slate-200 hover:border-teal-500 text-left text-xs bg-slate-50/70"
               >
                 <div className="font-semibold text-navy-950 uppercase">{r.forecast_type} · {r.horizon_days}d</div>

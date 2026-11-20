@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Patch, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { DatabaseService } from '../../database/database.service';
@@ -15,7 +15,7 @@ const CreateCustomerSchema = z.object({
   branchId: z.string().uuid().optional(),
 });
 
-@ApiTags('Customers & Kenya DPA 2019 Compliance')
+@ApiTags('Customers and consent records')
 @ApiBearerAuth()
 @Controller('customers')
 export class CustomersController {
@@ -26,17 +26,22 @@ export class CustomersController {
   async list(@TenantCtx() ctx: TenantAuthContext) {
     return this.db.withTenant(ctx.tenantId, async (client) => {
       const res = await client.query(
-        `SELECT v.*, c.preferred_language, c.status,
-                COALESCE(
-                  (SELECT jsonb_agg(jsonb_build_object('channel', cc.channel, 'purpose', cc.purpose, 'status', cc.status))
-                   FROM customer_consents cc WHERE cc.tenant_id = c.tenant_id AND cc.customer_id = c.id),
-                  '[]'::jsonb
-                ) AS consents
-         FROM vw_customer_purchase_summary v
-         JOIN customers c ON c.tenant_id = v.tenant_id AND c.id = v.customer_id
-         WHERE v.tenant_id = $1
-         ORDER BY v.lifetime_value DESC`,
-        [ctx.tenantId],
+        `SELECT c.tenant_id, c.id AS customer_id, c.full_name, c.phone_number, c.email, c.preferred_channel,
+                c.marketing_opt_in, c.preferred_language, c.status,
+                CASE WHEN $3::boolean THEN COALESCE(p.total_orders, 0) END AS total_orders,
+                CASE WHEN $3::boolean THEN COALESCE(p.lifetime_value, 0) END AS lifetime_value,
+                CASE WHEN $3::boolean THEN p.last_purchase_at END AS last_purchase_at,
+                CASE WHEN $3::boolean THEN EXTRACT(DAY FROM (NOW() - p.last_purchase_at))::integer END AS days_since_last_purchase,
+                COALESCE((SELECT jsonb_agg(jsonb_build_object('channel', cc.channel, 'purpose', cc.purpose, 'status', cc.status))
+                          FROM customer_consents cc WHERE cc.tenant_id=c.tenant_id AND cc.customer_id=c.id), '[]'::jsonb) AS consents
+         FROM customers c
+         LEFT JOIN LATERAL (SELECT COUNT(*)::bigint AS total_orders, SUM(s.total_amount)::numeric(14,2) AS lifetime_value,
+                            MAX(s.transaction_date) AS last_purchase_at FROM sales s
+                            WHERE s.tenant_id=c.tenant_id AND s.customer_id=c.id AND s.payment_status NOT IN ('reversed','refunded')
+                              AND ($2::uuid[] IS NULL OR s.branch_id = ANY($2::uuid[]))) p ON TRUE
+         WHERE c.tenant_id=$1 AND ($2::uuid[] IS NULL OR c.branch_id = ANY($2::uuid[]))
+         ORDER BY c.full_name`,
+        [ctx.tenantId, ctx.allowedBranchIds, ctx.permissions.includes('sales:read')],
       );
       return { customers: res.rows };
     });
@@ -55,11 +60,17 @@ export class CustomersController {
       throw new BadRequestException({ message: 'Invalid customer data', errors: parsed.error.flatten() });
     }
     const d = parsed.data;
+    let branchId = d.branchId || null;
+    if (ctx.allowedBranchIds !== null) {
+      if (branchId && !ctx.allowedBranchIds.includes(branchId)) throw new ForbiddenException('Branch access denied.');
+      if (!branchId && ctx.allowedBranchIds.length === 1) branchId = ctx.allowedBranchIds[0];
+      if (!branchId) throw new BadRequestException('Choose an assigned branch for this customer.');
+    }
     const customer = await this.db.withTenant(ctx.tenantId, async (client) => {
       const ins = await client.query(
         `INSERT INTO customers (tenant_id, branch_id, full_name, phone_number, email, preferred_language, preferred_channel, marketing_opt_in)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-        [ctx.tenantId, d.branchId || null, d.fullName, d.phoneNumber || null, d.email || null, d.preferredLanguage, d.preferredChannel, d.marketingOptIn],
+        [ctx.tenantId, branchId, d.fullName, d.phoneNumber || null, d.email || null, d.preferredLanguage, d.preferredChannel, d.marketingOptIn],
       );
       const cust = ins.rows[0];
       await client.query(
@@ -105,6 +116,8 @@ export class CustomersController {
     }
 
     const res = await this.db.withTenant(ctx.tenantId, async (client) => {
+      const allowed = await client.query(`SELECT id FROM customers WHERE tenant_id=$1 AND id=$2 AND ($3::uuid[] IS NULL OR branch_id=ANY($3::uuid[]))`, [ctx.tenantId, id, ctx.allowedBranchIds]);
+      if (!allowed.rowCount) throw new BadRequestException('Customer not found.');
       const up = await client.query(
         `INSERT INTO customer_consents (tenant_id, customer_id, channel, purpose, status, source, revoked_at)
          VALUES ($1,$2,$3,$4,$5::varchar,'portal_consent_manager', CASE WHEN $5::varchar = 'revoked' THEN NOW() ELSE NULL END)
@@ -146,6 +159,8 @@ export class CustomersController {
     @TenantCtx() ctx: TenantAuthContext,
     @CurrentUser() user: AuthenticatedUser,
   ) {
+    // A complete data-subject export includes all branches and transaction history.
+    if (ctx.allowedBranchIds !== null || !ctx.permissions.includes('sales:read')) throw new ForbiddenException('A complete customer export requires whole-business customer and sales access.');
     return this.db.withTenant(ctx.tenantId, async (client) => {
       const [cust, consents, interactions, sales] = await Promise.all([
         client.query(`SELECT id, full_name, email, phone_number, preferred_language, preferred_channel, created_at FROM customers WHERE tenant_id = $1 AND id = $2`, [ctx.tenantId, id]),
@@ -181,6 +196,8 @@ export class CustomersController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.db.withTenant(ctx.tenantId, async (client) => {
+      const allowed = await client.query(`SELECT id FROM customers WHERE tenant_id=$1 AND id=$2 AND ($3::uuid[] IS NULL OR branch_id=ANY($3::uuid[]))`, [ctx.tenantId, id, ctx.allowedBranchIds]);
+      if (!allowed.rowCount) throw new BadRequestException('Customer not found.');
       const ins = await client.query(
         `INSERT INTO deletion_requests (tenant_id, subject_type, subject_id, reason, legal_retention_note, status, requested_by)
          VALUES ($1, 'customer', $2, $3, 'Financial transaction totals retained in anonymized form for 7 years per Kenya Tax Procedures Act.', 'pending_review', $4)

@@ -1,4 +1,5 @@
-from fastapi import APIRouter
+from typing import Any, Dict, List
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.models.schemas import (
     SalesForecastRequest,
@@ -15,6 +16,8 @@ from app.forecasting.engine import (
 from app.anomaly_detection.detector import detect_anomalies
 from app.segmentation.rfm import compute_rfm_segments
 from app.advisor.engine import compute_business_diagnostics, simulate_what_if
+from app.scientist.engine import run_pro_data_scientist_analysis
+from app.scientist.website_analyzer import UnsafeUrlError, analyze_business_website
 
 router = APIRouter(prefix="/v1", tags=["intelligence"])
 
@@ -45,6 +48,31 @@ class WhatIfRequest(BaseModel):
     expense_change_pct: float = 0.0
     stockout_recovery_pct: float = 0.0
     price_elasticity: float = -0.35
+
+
+class ProScientistRequest(BaseModel):
+    daily_sales: List[Dict[str, Any]] = []
+    products: List[Dict[str, Any]] = []
+    payment_mix: List[Dict[str, Any]] = []
+    expense_mix: List[Dict[str, Any]] = []
+    total_revenue: float = 0.0
+    total_cogs: float = 0.0
+    total_expenses: float = 0.0
+    cost_data_available: bool | None = None
+    expense_data_available: bool | None = None
+    liquidity_data_available: bool = False
+    total_orders: int = 0
+    cash_balance: float = 0.0
+    payables: float = 0.0
+    receivables: float = 0.0
+    stockout_count: int = 0
+    low_stock_count: int = 0
+    period_days: int = 30
+    horizon_days: int = 14
+
+
+class WebsiteAnalyzeRequest(BaseModel):
+    url: str
 
 
 @router.post("/forecasts/sales")
@@ -80,3 +108,18 @@ def advisor_diagnose(payload: DiagnosticsRequest):
 @router.post("/advisor/simulate")
 def advisor_simulate(payload: WhatIfRequest):
     return simulate_what_if(payload.model_dump())
+
+
+@router.post("/scientist/analyze")
+def scientist_analyze(payload: ProScientistRequest):
+    return run_pro_data_scientist_analysis(payload.model_dump())
+
+
+@router.post("/scientist/website-analyze")
+def scientist_website_analyze(payload: WebsiteAnalyzeRequest):
+    try:
+        return analyze_business_website(payload.url)
+    except UnsafeUrlError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Could not read website content: {exc}")

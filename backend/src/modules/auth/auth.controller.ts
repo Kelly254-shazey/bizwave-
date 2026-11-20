@@ -48,6 +48,13 @@ export class AuthController {
 
   @ApiBearerAuth()
   @SkipTenant()
+  @Post('change-password')
+  changePassword(@CurrentUser() user: AuthenticatedUser, @Body() body: { currentPassword?: string; newPassword?: string }) {
+    return this.authService.changePassword(user.userId, user.sessionId, body?.currentPassword || '', body?.newPassword || '');
+  }
+
+  @ApiBearerAuth()
+  @SkipTenant()
   @Get('me')
   async me(@CurrentUser() user: AuthenticatedUser) {
     const organizations = await this.authService.getAuthorizedOrganizations(user.userId);

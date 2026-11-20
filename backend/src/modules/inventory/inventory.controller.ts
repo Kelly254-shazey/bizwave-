@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, ForbiddenException, Get, Post, Q
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { DatabaseService } from '../../database/database.service';
+import { inventoryMovementForRole, inventoryRowForRole } from '../../common/inventory-visibility';
 import { CurrentUser, RequirePermissions, TenantCtx } from '../../common/decorators/auth.decorators';
 import { AuthenticatedUser, TenantAuthContext } from '../../common/types/auth.types';
 
@@ -65,9 +66,9 @@ export class InventoryController {
       ]);
 
       return {
-        inventory: items.rows,
+        inventory: items.rows.map((row) => inventoryRowForRole(row, ctx)),
         alerts: alerts.rows,
-        recentMovements: movements.rows,
+        recentMovements: movements.rows.map((row) => inventoryMovementForRole(row, ctx)),
       };
     });
   }

@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, 
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { DatabaseService } from '../../database/database.service';
+import { saleForRole } from '../../common/inventory-visibility';
 import { CurrentUser, RequirePermissions, TenantCtx } from '../../common/decorators/auth.decorators';
 import { AuthenticatedUser, TenantAuthContext } from '../../common/types/auth.types';
 
@@ -47,7 +48,7 @@ export class SalesController {
     return this.db.withTenant(ctx.tenantId, async (client) => {
       const res = await client.query(
         `SELECT s.*, b.name AS branch_name, c.full_name AS customer_name,
-                (SELECT sp.payment_method FROM sales_payments sp WHERE sp.sale_id = s.id LIMIT 1) AS payment_method
+                (SELECT CASE WHEN COUNT(DISTINCT sp.payment_method) > 1 THEN 'multiple' ELSE MIN(sp.payment_method) END FROM sales_payments sp WHERE sp.tenant_id = s.tenant_id AND sp.sale_id = s.id) AS payment_method
          FROM sales s
          JOIN branches b ON b.tenant_id = s.tenant_id AND b.id = s.branch_id
          LEFT JOIN customers c ON c.tenant_id = s.tenant_id AND c.id = s.customer_id
@@ -58,7 +59,7 @@ export class SalesController {
          LIMIT $4`,
         [ctx.tenantId, effectiveBranch, ctx.allowedBranchIds, limit],
       );
-      return { sales: res.rows };
+      return { sales: res.rows.map((row) => { const sale = saleForRole(row, ctx); if (!ctx.permissions.includes('customers:read')) { sale.customer_id = null; sale.customer_name = null; } return sale; }) };
     });
   }
 
@@ -79,6 +80,11 @@ export class SalesController {
     const txRef = `BW-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
 
     const sale = await this.db.withTenant(ctx.tenantId, async (client) => {
+      if (d.customerId) {
+        if (!ctx.permissions.includes('customers:read')) throw new ForbiddenException('Your role cannot assign a customer.');
+        const customer = await client.query(`SELECT id FROM customers WHERE tenant_id=$1 AND id=$2 AND ($3::uuid[] IS NULL OR branch_id=ANY($3::uuid[]))`, [ctx.tenantId, d.customerId, ctx.allowedBranchIds]);
+        if (!customer.rowCount) throw new BadRequestException('Customer not found.');
+      }
       let subtotal = 0;
       let totalTax = 0;
       let totalCogs = 0;
@@ -105,9 +111,9 @@ export class SalesController {
       const saleIns = await client.query(
         `INSERT INTO sales (
            tenant_id, branch_id, customer_id, transaction_ref, source_system, transaction_date,
-           payment_status, currency_code, subtotal, tax_amount, total_amount, cost_of_goods_sold, notes, created_by
-         ) VALUES ($1,$2,$3,$4,'portal_pos',NOW(),'paid','KES',$5,$6,$7,$8,$9,$10) RETURNING *`,
-        [ctx.tenantId, d.branchId, d.customerId || null, txRef, subtotal, totalTax, totalAmount, totalCogs, d.notes || null, user.userId],
+           payment_status, currency_code, subtotal, tax_amount, total_amount, cost_of_goods_sold, notes, created_by, cost_basis
+         ) VALUES ($1,$2,$3,$4,'portal_pos',NOW(),'paid','KES',$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+        [ctx.tenantId, d.branchId, d.customerId || null, txRef, subtotal, totalTax, totalAmount, totalCogs, d.notes || null, user.userId, resolvedItems.every((item) => item.unitCost > 0) ? 'actual' : 'unknown'],
       );
       const createdSale = saleIns.rows[0];
 
@@ -147,7 +153,9 @@ export class SalesController {
       changes: { transactionRef: sale.transaction_ref, totalAmount: sale.total_amount },
     });
 
-    return { sale };
+    const visibleSale = saleForRole(sale, ctx);
+    if (!ctx.permissions.includes('customers:read')) visibleSale.customer_id = null;
+    return { sale: visibleSale };
   }
 
   /**

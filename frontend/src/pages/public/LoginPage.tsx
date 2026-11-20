@@ -39,7 +39,7 @@ export const LoginPage: React.FC = () => {
 
       if (res.organizations.length > 1) {
         navigate('/app/select-organization');
-      } else if (res.organizations[0] && !res.organizations[0].onboarding_completed) {
+      } else if (res.organizations[0] && !res.organizations[0].onboarding_completed && res.organizations[0].permissions?.includes('org:manage')) {
         navigate('/app/onboarding');
       } else {
         navigate('/app/dashboard');
@@ -104,14 +104,15 @@ export const LoginPage: React.FC = () => {
           <div className="slide-card p-6 sm:p-8 rounded-2xl">
             <h2 className="text-lg font-bold text-white mb-1">{showReset ? 'Reset Password' : 'Sign In'}</h2>
             <p className="text-xs text-slate-400 mb-6">
-              {showReset ? 'We will send password reset steps to your registered email.' : 'Enter your registered business account credentials.'}
+              {showReset ? 'Automated reset email delivery is not configured. Please contact your business administrator or support.' : 'Enter your registered business account credentials.'}
             </p>
 
             {!showReset ? (
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-200 mb-1.5">Email Address</label>
+                  <label htmlFor="login-email" className="block text-xs font-semibold text-slate-200 mb-1.5">Email Address</label>
                   <input
+                    id="login-email"
                     type="email"
                     required
                     autoComplete="email"
@@ -124,7 +125,7 @@ export const LoginPage: React.FC = () => {
 
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-semibold text-slate-200">Password</label>
+                    <label htmlFor="login-password" className="text-xs font-semibold text-slate-200">Password</label>
                     <button
                       type="button"
                       onClick={() => setShowReset(true)}
@@ -134,6 +135,7 @@ export const LoginPage: React.FC = () => {
                     </button>
                   </div>
                   <input
+                    id="login-password"
                     type="password"
                     required
                     autoComplete="current-password"

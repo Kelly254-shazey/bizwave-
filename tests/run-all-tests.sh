@@ -1,79 +1,50 @@
 #!/usr/bin/env bash
-# =============================================================================
-# BizWave Enterprise QA & Full Test Automation Runner (12 Automated Suites)
-# Covers:
-#   Unit Testing:        Backend TS (12), Frontend TS/i18n (5), Python FastAPI (11)
-#   Integration Testing: PostgreSQL RLS/Audit/Triggers (8), Multi-Service API (23)
-#   System Testing:      Functional E2E (6), OWASP Security Pentest (8),
-#                        Performance & Multi-Tenant Scalability (5),
-#                        Usability & Compatibility (6), Disaster Recovery & Resilience (4),
-#                        Evolvability & Architecture Fitness (6)
-#   Build Verification:  Backend tsc + Frontend strict tsc & Vite production bundle
-# =============================================================================
+# Current-release test runner. Integration creates fixtures and audit records;
+# never point it at a real or shared installation. See README for setup.
 set -euo pipefail
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-ROOT_DIR="/home/user/bizwave"
-
-echo "============================================================"
-echo "[1/12] UNIT: NestJS Backend Crypto, Security & Domain Logic"
-echo "============================================================"
+echo '=== Backend unit tests ==='
 (cd "${ROOT_DIR}/backend" && npm run test:unit)
-
-echo "============================================================"
-echo "[2/12] UNIT: React Frontend i18n, Formatting & Storage Safety"
-echo "============================================================"
+echo '=== Frontend unit tests ==='
 (cd "${ROOT_DIR}/frontend" && npm run test:unit)
-
-echo "============================================================"
-echo "[3/12] UNIT: Python FastAPI Intelligence Service (pytest)"
-echo "============================================================"
-(cd "${ROOT_DIR}/intelligence" && PYTHONPATH=. pytest -v)
-
-echo "============================================================"
-echo "[4/12] INTEGRATION: PostgreSQL Schema, Immutability & RLS"
-echo "============================================================"
-PGPASSWORD="${PGPASSWORD:-bizwave_app_dev_pw}" psql -h 127.0.0.1 -U bizwave_app -d bizwave -v ON_ERROR_STOP=1 < "${ROOT_DIR}/database/tests/test_database_integrity.sql"
-
-echo "============================================================"
-echo "[5/12] INTEGRATION: NestJS API, RBAC, Multi-Tenant & Learn"
-echo "============================================================"
-(cd "${ROOT_DIR}/backend" && npm run test:integration)
-
-echo "============================================================"
-echo "[6/12] SYSTEM-FUNCTIONAL: E2E SME, Public Buyer & RBAC Flows"
-echo "============================================================"
-(cd "${ROOT_DIR}/backend" && npx tsx ../tests/system/functional.e2e.spec.ts)
-
-echo "============================================================"
-echo "[7/12] SYSTEM-SECURITY: OWASP ASVS Pentest & Isolation Audit"
-echo "============================================================"
-(cd "${ROOT_DIR}/backend" && npx tsx ../tests/system/security.pentest.spec.ts)
-
-echo "============================================================"
-echo "[8/12] SYSTEM-PERFORMANCE & SCALABILITY: Concurrent Load"
-echo "============================================================"
-(cd "${ROOT_DIR}/backend" && npx tsx ../tests/system/performance.load.spec.ts)
-
-echo "============================================================"
-echo "[9/12] SYSTEM-USABILITY & COMPATIBILITY: A11y, i18n, OpenAPI"
-echo "============================================================"
-(cd "${ROOT_DIR}/backend" && npx tsx ../tests/system/usability.compat.spec.ts)
-
-echo "============================================================"
-echo "[10/12] SYSTEM-RECOVERY & RESILIENCE: Live pg_dump/Restore DR"
-echo "============================================================"
-(cd "${ROOT_DIR}/backend" && npx tsx ../tests/system/recovery.resilience.spec.ts)
-
-echo "============================================================"
-echo "[11/12] SYSTEM-EVOLVABILITY: Architecture & Tech-Fitness"
-echo "============================================================"
+echo '=== Intelligence tests ==='
+(cd "${ROOT_DIR}/intelligence" && PYTHONPATH=. pytest -q)
+echo '=== Architecture fitness checks ==='
 (cd "${ROOT_DIR}/backend" && npx tsx ../tests/system/evolvability.audit.spec.ts)
-
-echo "============================================================"
-echo "[12/12] BUILD VERIFICATION: Backend tsc + Frontend Vite Build"
-echo "============================================================"
+echo '=== Production builds ==='
 (cd "${ROOT_DIR}/backend" && npm run build)
 (cd "${ROOT_DIR}/frontend" && npm run build)
+echo '=== Disposable database migration regression ==='
+"${ROOT_DIR}/tests/migration-regression.sh"
+echo '=== Restore target safety (mocked PostgreSQL commands) ==='
+"${ROOT_DIR}/tests/restore-safety.spec.sh"
 
-echo ""
-echo "✅ ALL 12 BIZWAVE QA & TEST AUTOMATION SUITES PASSED WITH ZERO FAILURES!"
+if [[ -z "${BIZWAVE_TEST_DATABASE_URL:-}" || -z "${BIZWAVE_TEST_OWNER_DATABASE_URL:-}" || "${BIZWAVE_ALLOW_TEST_FIXTURES:-}" != '1' ]]; then
+  echo 'NOT RUN: database integrity and API integration require a disposable local test DB and API.' >&2
+  echo 'Set BIZWAVE_TEST_DATABASE_URL, BIZWAVE_TEST_OWNER_DATABASE_URL, BIZWAVE_API_URL and BIZWAVE_ALLOW_TEST_FIXTURES=1; see README.' >&2
+  exit 2
+fi
+
+# Even the rolled-back integrity suite must never be aimed at a real database.
+# Also ensure its URL and the integration owner URL refer to the same local DB.
+python3 - <<'PY'
+import os, sys
+from urllib.parse import urlparse
+app = urlparse(os.environ['BIZWAVE_TEST_DATABASE_URL'])
+owner = urlparse(os.environ['BIZWAVE_TEST_OWNER_DATABASE_URL'])
+api = urlparse(os.environ.get('BIZWAVE_API_URL', 'http://127.0.0.1:4000/api/v1'))
+local = {'localhost', '127.0.0.1', '::1'}
+name = owner.path.lstrip('/')
+if (app.scheme not in ('postgres', 'postgresql') or owner.scheme not in ('postgres', 'postgresql')
+    or app.hostname not in local or owner.hostname not in local or api.hostname not in local
+    or app.path != owner.path or (app.port or 5432) != (owner.port or 5432)
+    or not (name.startswith('bw_qa_') or name.startswith('bizwave_test') or name.startswith('bizwave_ci'))):
+    sys.exit('Refusing non-local, non-test or mismatched database/API URLs.')
+PY
+
+echo '=== Database isolation / immutability (transaction is rolled back) ==='
+psql "$BIZWAVE_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 < "${ROOT_DIR}/database/tests/test_database_integrity.sql"
+echo '=== API integration (fixtures remain in disposable database) ==='
+(cd "${ROOT_DIR}/backend" && npm run test:integration)
+echo '=== All current configured release checks passed ==='

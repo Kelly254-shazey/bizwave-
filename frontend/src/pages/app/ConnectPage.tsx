@@ -1,394 +1,77 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CheckCircle2, Download, Lock, MessageSquare, Send, Settings2, ShieldCheck, Users } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, Building2, Globe2, Mail, MapPin, Search, ShieldCheck, Store, Users, X } from 'lucide-react';
 import { apiRequest } from '../../services/api';
 import { useAuth } from '../../stores/authStore';
-import { formatKes } from '../../i18n/translations';
+
+type Profile = { display_name: string; sector: string; county: string; description: string; contact_email: string | null; website: string | null; is_published: boolean };
+type Business = Profile & { id: string };
+type ProfileForm = { displayName: string; sector: string; county: string; description: string; contactEmail: string; website: string; isPublished: boolean };
 
 export const ConnectPage: React.FC = () => {
-  const { activeOrg, hasPermission, hasFeature } = useAuth();
-  const [tab, setTab] = useState<'customers' | 'campaigns' | 'templates' | 'providers'>('customers');
-  const [customers, setCustomers] = useState<any[]>([]);
-  const [commData, setCommData] = useState<any>({ channels: [], providers: [], templates: [], campaigns: [], messages: [] });
-  const [msg, setMsg] = useState('');
-  const [err, setErr] = useState('');
-
-  const [campForm, setCampForm] = useState({ name: '', channelType: 'sms', purpose: 'marketing', templateId: '', customMessage: '' });
-  const [tplForm, setTplForm] = useState({ name: '', channelType: 'sms', language: 'en', purpose: 'marketing', bodyTemplate: 'Hi {{name}}, ...' });
-  const [provForm, setProvForm] = useState({ channelType: 'sms', providerCode: 'africas_talking', senderId: '', apiKey: '', username: '' });
-
-  const allowed = hasFeature('connect_core');
-
-  const loadAll = async () => {
-    setErr('');
-    try {
-      const [cRes, commRes] = await Promise.all([
-        hasPermission('customers:read') ? apiRequest('/customers') : Promise.resolve({ customers: [] }),
-        allowed && hasPermission('connect:read') ? apiRequest('/communications/overview') : Promise.resolve({ channels: [], providers: [], templates: [], campaigns: [], messages: [] }),
-      ]);
-      setCustomers(cRes.customers || []);
-      setCommData(commRes);
-    } catch (e: any) {
-      setErr(e.message);
-    }
-  };
+  const { activeOrg, language, hasPermission } = useAuth();
+  const sw = language === 'sw';
+  const tr = (en: string, kiswahili: string) => sw ? kiswahili : en;
+  const [query, setQuery] = useState('');
+  const [county, setCounty] = useState('');
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [total, setTotal] = useState(0);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [profileError, setProfileError] = useState('');
+  const [message, setMessage] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState<ProfileForm>({ displayName: '', sector: '', county: '', description: '', contactEmail: '', website: '', isPublished: false });
+  const requestRef = useRef(0);
 
   useEffect(() => {
-    loadAll();
+    if (!hasPermission('connect:read')) { setLoading(false); return; }
+    const id = ++requestRef.current;
+    setLoading(true); setError('');
+    const timer = window.setTimeout(() => {
+      apiRequest(`/business-network/businesses?q=${encodeURIComponent(query.trim())}&county=${encodeURIComponent(county.trim())}`)
+        .then((result) => { if (id === requestRef.current) { setBusinesses(result.businesses || []); setTotal(result.total || 0); } })
+        .catch((e) => { if (id === requestRef.current) { setBusinesses([]); setError(e.message || 'Unable to load the business directory.'); } })
+        .finally(() => { if (id === requestRef.current) setLoading(false); });
+    }, 250);
+    return () => { window.clearTimeout(timer); requestRef.current++; };
+  }, [activeOrg?.id, query, county]);
+
+  useEffect(() => {
+    if (!activeOrg || !hasPermission('org:read')) { setProfileLoading(false); return; }
+    let current = true;
+    setProfileLoading(true); setProfileError('');
+    apiRequest('/business-network/profile').then((result) => { if (current) setProfile(result.profile); })
+      .catch((e) => { if (current) setProfileError(e.message || 'Unable to load your profile.'); })
+      .finally(() => { if (current) setProfileLoading(false); });
+    return () => { current = false; };
   }, [activeOrg?.id]);
 
-  const toggleConsent = async (customerId: string, channel: string, currentOptIn: boolean) => {
+  const editProfile = () => {
+    setForm({ displayName: profile?.display_name || activeOrg?.display_name || '', sector: profile?.sector || '', county: profile?.county || '', description: profile?.description || '', contactEmail: profile?.contact_email || '', website: profile?.website || '', isPublished: profile?.is_published || false });
+    setProfileError(''); setMessage(''); setEditing(true);
+  };
+  const saveProfile = async (event: React.FormEvent) => {
+    event.preventDefault(); setSaving(true); setProfileError(''); setMessage('');
     try {
-      await apiRequest(`/customers/${customerId}/consents`, {
-        method: 'PATCH',
-        body: { channel, purpose: 'marketing', status: currentOptIn ? 'revoked' : 'granted' },
-      });
-      setMsg('Customer marketing consent updated and logged for Kenya DPA 2019 compliance.');
-      loadAll();
-    } catch (e: any) {
-      setErr(e.message);
-    }
+      const result = await apiRequest('/business-network/profile', { method: 'PUT', body: form });
+      setProfile(result.profile); setEditing(false);
+      setMessage(result.profile.is_published ? tr('Your profile is visible to other BizWave businesses.', 'Wasifu wako unaonekana kwa biashara nyingine za BizWave.') : tr('Your profile is private and is not listed in the directory.', 'Wasifu wako ni wa faragha na haupo kwenye orodha.'));
+    } catch (e: any) { setProfileError(e.message || tr('Could not save your profile.', 'Imeshindikana kuhifadhi wasifu.')); }
+    finally { setSaving(false); }
   };
 
-  const handleDpaExport = async (customerId: string, name: string) => {
-    try {
-      const data = await apiRequest(`/customers/${customerId}/dpa-export`);
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `dpa-2019-export-${name.toLowerCase().replace(/\s+/g, '-')}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setMsg(`Kenya DPA 2019 Data Subject Access export downloaded for ${name}.`);
-    } catch (e: any) {
-      setErr(e.message);
-    }
-  };
-
-  const launchCampaign = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setMsg('');
-    setErr('');
-    try {
-      const res = await apiRequest('/communications/campaigns', { method: 'POST', body: campForm });
-      setMsg(
-        `Campaign "${res.campaign.name}" processed: ${res.campaign.consented_count} consented, ${res.campaign.skipped_no_consent_count} blocked for missing consent. ${res.honestNotice}`,
-      );
-      setCampForm({ ...campForm, name: '', customMessage: '' });
-      loadAll();
-    } catch (e: any) {
-      setErr(e.message);
-    }
-  };
-
-  const saveTemplate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await apiRequest('/communications/templates', { method: 'POST', body: tplForm });
-      setMsg('Communication template saved.');
-      setTplForm({ ...tplForm, name: '' });
-      loadAll();
-    } catch (e: any) {
-      setErr(e.message);
-    }
-  };
-
-  const saveProvider = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await apiRequest('/communications/channels/configure', {
-        method: 'POST',
-        body: {
-          channelType: provForm.channelType,
-          providerCode: provForm.providerCode,
-          senderId: provForm.senderId,
-          credentials: {
-            ...(provForm.apiKey ? { API_KEY: provForm.apiKey } : {}),
-            ...(provForm.username ? { USERNAME: provForm.username } : {}),
-          },
-        },
-      });
-      setMsg('Provider channel configuration saved (credentials encrypted at rest via AES-256-GCM).');
-      setProvForm({ ...provForm, apiKey: '' });
-      loadAll();
-    } catch (e: any) {
-      setErr(e.message);
-    }
-  };
-
-  if (!allowed && !hasPermission('customers:read')) {
-    return (
-      <div className="bg-white border border-slate-200 rounded-2xl p-8 max-w-xl mx-auto text-center space-y-3">
-        <Lock className="w-10 h-10 text-amber-500 mx-auto" />
-        <h1 className="text-xl font-bold text-navy-950">BizWave Connect Requires Growth Plan or Higher</h1>
-        <Link to="/app/billing" className="inline-block mt-2 px-5 py-2.5 rounded-xl bg-navy-950 text-white text-sm font-semibold">
-          View Plans
-        </Link>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="text-xs font-bold uppercase tracking-wider text-teal-600">Turn Insights Into Customer Action</div>
-          <h1 className="mt-1 text-2xl font-extrabold text-navy-950">BizWave Connect</h1>
-          <p className="text-sm text-slate-500">
-            Reach opted-in customers via SMS, WhatsApp, Voice, and USSD with Kenya DPA consent controls and measurable interaction analytics.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-1.5 bg-white p-1 rounded-xl border border-slate-200">
-          {[
-            { id: 'customers', label: 'Customers & Consent', icon: Users },
-            { id: 'campaigns', label: 'Campaigns & Logs', icon: Send },
-            { id: 'templates', label: 'EN/SW Templates', icon: MessageSquare },
-            { id: 'providers', label: 'Providers (SMS/WA/Voice/USSD)', icon: Settings2 },
-          ].map((t) => {
-            const Icon = t.icon;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setTab(t.id as any)}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold ${
-                  tab === t.id ? 'bg-navy-950 text-white' : 'text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" /> {t.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {msg && <div className="p-3.5 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs font-medium">{msg}</div>}
-      {err && <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">{err}</div>}
-
-      {tab === 'customers' && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 overflow-x-auto">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-bold text-navy-950">Customer Directory &amp; Consent Governance ({customers.length})</h2>
-            <span className="inline-flex items-center gap-1 text-[11px] text-teal-700 font-medium">
-              <ShieldCheck className="w-3.5 h-3.5" /> Kenya DPA 2019 Consent Enforced
-            </span>
-          </div>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-slate-100 text-slate-400 text-left">
-                <th className="pb-2">Customer</th>
-                <th className="pb-2">Channel / Lang</th>
-                <th className="pb-2 text-right">Orders</th>
-                <th className="pb-2 text-right">Lifetime Value</th>
-                <th className="pb-2 text-center">Marketing Consent</th>
-                <th className="pb-2 text-right">DPA Rights</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {customers.map((c) => (
-                <tr key={c.customer_id} className="hover:bg-slate-50/70">
-                  <td className="py-2.5">
-                    <div className="font-semibold text-navy-950">{c.full_name}</div>
-                    <div className="text-[11px] text-slate-400">{c.phone_number} · {c.email}</div>
-                  </td>
-                  <td className="py-2.5 uppercase text-[10px] font-semibold text-slate-500">
-                    {c.preferred_channel} · {c.preferred_language}
-                  </td>
-                  <td className="py-2.5 text-right">{c.total_orders}</td>
-                  <td className="py-2.5 text-right font-semibold">{formatKes(c.lifetime_value)}</td>
-                  <td className="py-2.5 text-center">
-                    <button
-                      type="button"
-                      disabled={!hasPermission('customers:write')}
-                      onClick={() => toggleConsent(c.customer_id, 'sms', Boolean(c.marketing_opt_in))}
-                      className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                        c.marketing_opt_in ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
-                      }`}
-                    >
-                      {c.marketing_opt_in ? 'GRANTED' : 'REVOKED'}
-                    </button>
-                  </td>
-                  <td className="py-2.5 text-right">
-                    <button
-                      type="button"
-                      onClick={() => handleDpaExport(c.customer_id, c.full_name)}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 hover:underline"
-                    >
-                      <Download className="w-3 h-3" /> Export
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {tab === 'campaigns' && (
-        <div className="space-y-5">
-          {hasPermission('connect:send') && (
-            <form onSubmit={launchCampaign} className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
-              <div className="text-sm font-bold text-navy-950">Launch Consent-Verified Campaign</div>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <input
-                  required
-                  placeholder="Campaign Name"
-                  value={campForm.name}
-                  onChange={(e) => setCampForm({ ...campForm, name: e.target.value })}
-                  className="px-3 py-2 text-xs border border-slate-200 rounded-lg"
-                />
-                <select value={campForm.channelType} onChange={(e) => setCampForm({ ...campForm, channelType: e.target.value })} className="px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white">
-                  <option value="sms">SMS (Africa&apos;s Talking)</option>
-                  <option value="whatsapp">WhatsApp Cloud API</option>
-                  <option value="voice">Voice Broadcast</option>
-                  <option value="ussd">USSD Prompt</option>
-                </select>
-                <select value={campForm.purpose} onChange={(e) => setCampForm({ ...campForm, purpose: e.target.value })} className="px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white">
-                  <option value="marketing">Marketing (Requires Explicit Opt-In)</option>
-                  <option value="transactional">Transactional / Order Update</option>
-                </select>
-                <select value={campForm.templateId} onChange={(e) => setCampForm({ ...campForm, templateId: e.target.value })} className="px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white">
-                  <option value="">Use Custom Message Below</option>
-                  {commData.templates.map((t: any) => (
-                    <option key={t.id} value={t.id}>{t.name} ({t.language.toUpperCase()})</option>
-                  ))}
-                </select>
-              </div>
-              {!campForm.templateId && (
-                <textarea
-                  rows={2}
-                  placeholder="Message body — supports {{name}} variable..."
-                  value={campForm.customMessage}
-                  onChange={(e) => setCampForm({ ...campForm, customMessage: e.target.value })}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
-                />
-              )}
-              <button type="submit" className="px-5 py-2.5 rounded-xl bg-navy-950 text-white text-xs font-semibold hover:bg-navy-800">
-                Execute Consent Check &amp; Dispatch
-              </button>
-            </form>
-          )}
-
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 overflow-x-auto">
-            <h3 className="text-sm font-bold text-navy-950 mb-3">Message Delivery &amp; Consent Log ({commData.messages.length})</h3>
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-slate-100 text-slate-400 text-left">
-                  <th className="pb-2">Recipient</th>
-                  <th className="pb-2">Channel</th>
-                  <th className="pb-2">Status</th>
-                  <th className="pb-2">Provider Note / Reason</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {commData.messages.map((m: any) => (
-                  <tr key={m.id}>
-                    <td className="py-2">
-                      <div className="font-semibold text-navy-950">{m.customer_name || m.recipient_address}</div>
-                      <div className="text-[10px] text-slate-400">{m.recipient_address}</div>
-                    </td>
-                    <td className="py-2 uppercase text-[10px] font-semibold">{m.channel_type}</td>
-                    <td className="py-2">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          m.delivery_status === 'rejected_no_consent'
-                            ? 'bg-rose-100 text-rose-700'
-                            : m.delivery_status === 'provider_unconfigured'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-emerald-50 text-emerald-700'
-                        }`}
-                      >
-                        {m.delivery_status}
-                      </span>
-                    </td>
-                    <td className="py-2 text-slate-600 max-w-md">{m.failure_reason || 'Confirmed by provider'}</td>
-                  </tr>
-                ))}
-                {commData.messages.length === 0 && (
-                  <tr><td colSpan={4} className="py-6 text-center text-slate-400">No messages dispatched yet. Launch a campaign above to see live consent filtering &amp; honest adapter status.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {tab === 'templates' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          <form onSubmit={saveTemplate} className="lg:col-span-5 bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
-            <h3 className="text-sm font-bold text-navy-950">Create English / Kiswahili Template</h3>
-            <input required placeholder="Template Name" value={tplForm.name} onChange={(e) => setTplForm({ ...tplForm, name: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg" />
-            <div className="grid grid-cols-2 gap-2">
-              <select value={tplForm.channelType} onChange={(e) => setTplForm({ ...tplForm, channelType: e.target.value })} className="px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white">
-                <option value="sms">SMS</option>
-                <option value="whatsapp">WhatsApp</option>
-              </select>
-              <select value={tplForm.language} onChange={(e) => setTplForm({ ...tplForm, language: e.target.value })} className="px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white">
-                <option value="en">English</option>
-                <option value="sw">Kiswahili</option>
-              </select>
-            </div>
-            <textarea required rows={3} value={tplForm.bodyTemplate} onChange={(e) => setTplForm({ ...tplForm, bodyTemplate: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg" />
-            <button type="submit" className="w-full py-2.5 rounded-xl bg-navy-950 text-white text-xs font-semibold">Save Template</button>
-          </form>
-          <div className="lg:col-span-7 bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
-            <h3 className="text-sm font-bold text-navy-950">Active Templates ({commData.templates.length})</h3>
-            {commData.templates.map((t: any) => (
-              <div key={t.id} className="p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 text-xs space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-navy-950">{t.name}</span>
-                  <span className="uppercase text-[10px] font-semibold text-teal-700">{t.channel_type} · {t.language}</span>
-                </div>
-                <p className="text-slate-600">{t.body_template}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {tab === 'providers' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
-            <h3 className="text-sm font-bold text-navy-950">Configured Communication Channels</h3>
-            {commData.channels.map((ch: any) => (
-              <div key={ch.id} className="p-4 rounded-xl border border-slate-200 text-xs space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-navy-950 uppercase">{ch.channel_type} — {ch.provider_name}</span>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${ch.credential_status === 'configured' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>
-                    {ch.credential_status}
-                  </span>
-                </div>
-                <div className="text-slate-500">Sender ID: <code>{ch.sender_id}</code></div>
-                <div className="text-[11px] text-slate-500">Required keys: <code>{(ch.required_env_keys || []).join(', ')}</code></div>
-              </div>
-            ))}
-          </div>
-
-          <form onSubmit={saveProvider} className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
-            <h3 className="text-sm font-bold text-navy-950 flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-teal-600" /> Configure Provider Adapter (Encrypted at Rest)
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              <select value={provForm.channelType} onChange={(e) => setProvForm({ ...provForm, channelType: e.target.value })} className="px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white">
-                <option value="sms">SMS</option>
-                <option value="whatsapp">WhatsApp</option>
-                <option value="voice">Voice</option>
-                <option value="ussd">USSD</option>
-              </select>
-              <select value={provForm.providerCode} onChange={(e) => setProvForm({ ...provForm, providerCode: e.target.value })} className="px-3 py-2 text-xs border border-slate-200 rounded-lg bg-white">
-                <option value="africas_talking">Africa&apos;s Talking</option>
-                <option value="meta_whatsapp">Meta WhatsApp Cloud API</option>
-                <option value="twilio">Twilio</option>
-              </select>
-            </div>
-            <input required placeholder="Sender ID / Phone Number ID" value={provForm.senderId} onChange={(e) => setProvForm({ ...provForm, senderId: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg" />
-            <input placeholder="Provider Username / Account SID" value={provForm.username} onChange={(e) => setProvForm({ ...provForm, username: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg" />
-            <input type="password" placeholder="API Key / Access Token (stored AES-256-GCM encrypted)" value={provForm.apiKey} onChange={(e) => setProvForm({ ...provForm, apiKey: e.target.value })} className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg" />
-            <button type="submit" className="w-full py-2.5 rounded-xl bg-navy-950 text-white text-xs font-semibold">Save Encrypted Configuration</button>
-          </form>
-        </div>
-      )}
-    </div>
-  );
+  return <div className="space-y-5">
+    <div className="flex flex-wrap justify-between items-end gap-4"><div><div className="p-eyebrow">BIZWAVE CONNECT</div><h1 className="p-title">{tr('Find businesses to grow with', 'Tafuta biashara za kushirikiana nazo')}</h1><p className="p-subtitle">{tr('Explore businesses on BizWave by what they do and where they are.', 'Tafuta biashara za BizWave kulingana na huduma zao na zilipo.')}</p></div>{hasPermission('customers:read') && <Link to="/app/customer-communications" className="p-button-secondary"><Users size={15} />{tr('Customer communications', 'Mawasiliano ya wateja')}</Link>}</div>
+    {message && <div className="p-alert p-alert-success" role="status"><ShieldCheck size={17} />{message}</div>}
+    <div className="network-intro p-panel"><div className="network-intro-icon"><Globe2 size={23} /></div><div><div className="p-panel-title">{tr('A business network, not a customer list', 'Mtandao wa biashara, si orodha ya wateja')}</div><p className="p-panel-note mt-1">{tr('Only businesses that choose to publish are listed. Your sales and financial records are never shared here.', 'Biashara zinazochagua kujitokeza pekee ndizo zinaonekana. Rekodi zako za mauzo na fedha hazishirikiwi hapa.')}</p></div></div>
+    <div className="network-grid"><section className="space-y-4"><div className="p-panel network-search"><div className="network-search-header"><div><h2 className="p-panel-title">{tr('Discover businesses', 'Tafuta biashara')}</h2><p className="p-panel-note mt-1">{tr('Search by business, product or sector.', 'Tafuta kwa jina la biashara, bidhaa au sekta.')}</p></div><span className="network-count">{loading ? '—' : total} {tr('found', 'zimepatikana')}</span></div><div className="network-search-fields"><label className="network-input"><Search size={17} /><span className="sr-only">{tr('Search businesses or sector', 'Tafuta biashara au sekta')}</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={tr('e.g. electronics, agriculture', 'mf. vifaa vya umeme, kilimo')} /></label><label className="network-input"><MapPin size={17} /><span className="sr-only">{tr('Search county', 'Tafuta kaunti')}</span><input value={county} onChange={(e) => setCounty(e.target.value)} placeholder={tr('County or location', 'Kaunti au eneo')} /></label></div><p className="network-disclaimer">{tr('Results and counts cover opted-in BizWave businesses only. They are not market demand or sector statistics.', 'Matokeo na idadi ni za biashara za BizWave zilizokubali pekee. Si takwimu za soko au mahitaji ya sekta.')}</p></div>
+      {error ? <div className="p-alert p-alert-error" role="alert"><AlertCircle size={17} />{error}</div> : loading ? <div className="p-panel p-8 p-empty">{tr('Loading businesses…', 'Inapakia biashara…')}</div> : businesses.length ? <div className="network-results">{businesses.map((business) => <article key={business.id} className="p-panel network-business"><div className="flex gap-3 items-start"><div className="network-business-icon"><Store size={18} /></div><div className="min-w-0 flex-1"><h3>{business.display_name}</h3><div className="network-business-meta"><span>{business.sector}</span><span>•</span><MapPin size={12} /><span>{business.county}</span></div></div></div>{business.description && <p>{business.description}</p>}<div className="network-business-links">{business.contact_email && <a href={`mailto:${business.contact_email}`}><Mail size={14} />{tr('Email business', 'Tuma barua pepe')}</a>}{business.website && <a href={business.website} target="_blank" rel="noreferrer noopener"><Globe2 size={14} />{tr('Visit website', 'Tembelea tovuti')} <ArrowUpRight size={13} /></a>}{!business.contact_email && !business.website && <span>{tr('No contact details shared', 'Hakuna mawasiliano yaliyowekwa')}</span>}</div></article>)}</div> : <div className="p-panel network-empty"><div className="network-empty-icon"><Search size={22} /></div><h3>{tr('No businesses found', 'Hakuna biashara zilizopatikana')}</h3><p>{query || county ? tr('Try a broader search or another location.', 'Jaribu utafutaji mpana zaidi au eneo lingine.') : tr('Published business profiles will appear here as the network grows.', 'Wasifu wa biashara utaonekana hapa kadri mtandao unavyokua.')}</p>{(query || county) && <button type="button" className="p-button-secondary" onClick={() => { setQuery(''); setCounty(''); }}>{tr('Clear filters', 'Ondoa vichujio')}</button>}</div>}
+      {!loading && total > businesses.length && <p className="p-empty">{tr('Showing the first 50 matches. Narrow your search to see more.', 'Tunaonyesha matokeo 50 ya kwanza. Boresha utafutaji kuona zaidi.')}</p>}
+    </section><aside className="space-y-4"><section className="p-panel network-profile"><div className="network-profile-icon"><Building2 size={20} /></div><h2 className="p-panel-title mt-4">{tr('Your business profile', 'Wasifu wa biashara yako')}</h2><p className="p-panel-note mt-2">{tr('Choose what other businesses can see. Publishing is optional and you can remove your listing at any time.', 'Chagua taarifa ambazo biashara nyingine zitaona. Kuchapisha si lazima na unaweza kujiondoa wakati wowote.')}</p><div className={`network-profile-status ${profile?.is_published ? 'published' : ''}`}><span />{profileLoading ? tr('Checking status…', 'Inakagua hali…') : profile?.is_published ? tr('Visible in directory', 'Inaonekana kwenye orodha') : tr('Not published', 'Haijachapishwa')}</div>{profileError && !editing && <p className="text-xs text-rose-700 mt-3" role="alert">{profileError}</p>}{hasPermission('org:manage') && <button type="button" onClick={editProfile} className="p-button-secondary w-full mt-4" disabled={profileLoading}>{profile ? tr('Manage profile', 'Simamia wasifu') : tr('Create profile', 'Unda wasifu')}</button>}</section><section className="p-panel p-5"><div className="flex items-start gap-3"><ShieldCheck size={18} className="text-teal-600 shrink-0" /><div><h3 className="p-panel-title">{tr('You control what is shared', 'Unadhibiti unachoshiriki')}</h3><p className="p-panel-note mt-2">{tr('Only the profile details you enter and publish are visible. Private records stay in your workspace.', 'Ni taarifa za wasifu ulizoweka na kuchapisha pekee zinazoonekana. Rekodi binafsi zinabaki kwenye nafasi yako.')}</p></div></div></section></aside></div>
+    {editing && <div className="dashboard-modal" role="dialog" aria-modal="true" aria-labelledby="business-profile-title"><button type="button" className="dashboard-modal-backdrop" onClick={() => !saving && setEditing(false)} aria-label={tr('Close form', 'Funga fomu')} /><form onSubmit={saveProfile} className="p-panel dashboard-modal-card"><div className="flex justify-between gap-3"><div><div className="p-eyebrow">{tr('BUSINESS NETWORK', 'MTANDAO WA BIASHARA')}</div><h2 id="business-profile-title" className="text-lg font-bold text-white mt-1">{tr('Business profile', 'Wasifu wa biashara')}</h2><p className="p-panel-note mt-1">{tr('These details are shared only if you choose to publish.', 'Taarifa hizi zitashirikiwa tu ukichagua kuzichapisha.')}</p></div><button type="button" className="portal-icon-button" onClick={() => setEditing(false)} aria-label={tr('Close form', 'Funga fomu')}><X size={19} /></button></div><div className="dashboard-form-grid"><label>{tr('Business name', 'Jina la biashara')}<input className="p-control" required minLength={2} maxLength={160} value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} /></label><label>{tr('Sector or products', 'Sekta au bidhaa')}<input className="p-control" maxLength={100} value={form.sector} onChange={(e) => setForm({ ...form, sector: e.target.value })} placeholder={tr('e.g. Electronics', 'mf. Vifaa vya umeme')} /></label><label>{tr('County or location', 'Kaunti au eneo')}<input className="p-control" maxLength={100} value={form.county} onChange={(e) => setForm({ ...form, county: e.target.value })} placeholder={tr('e.g. Nairobi', 'mf. Nairobi')} /></label><label>{tr('Contact email', 'Barua pepe ya mawasiliano')} <span>({tr('optional', 'si lazima')})</span><input className="p-control" type="email" maxLength={255} value={form.contactEmail} onChange={(e) => setForm({ ...form, contactEmail: e.target.value })} /></label><label className="sm:col-span-2">{tr('Website', 'Tovuti')} <span>({tr('optional', 'si lazima')})</span><input className="p-control" type="url" maxLength={500} placeholder="https://..." value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} /></label><label className="sm:col-span-2">{tr('About your business', 'Kuhusu biashara yako')} <span>({tr('optional', 'si lazima')})</span><textarea className="p-control" rows={3} maxLength={600} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label></div><label className="network-consent"><input type="checkbox" checked={form.isPublished} onChange={(e) => setForm({ ...form, isPublished: e.target.checked })} /><span>{tr('Publish this profile to other signed-in BizWave businesses. I understand the information above will be visible to them.', 'Chapisha wasifu huu kwa biashara nyingine zilizoingia BizWave. Ninaelewa taarifa zilizo hapo juu zitaonekana kwao.')}</span></label><p className="p-panel-note">{tr('A sector and location are required to publish. Uncheck the box to remove your listing.', 'Sekta na eneo zinahitajika ili kuchapisha. Ondoa alama ili kuondoa wasifu wako.')}</p>{profileError && <div className="p-alert p-alert-error" role="alert"><AlertCircle size={16} />{profileError}</div>}<div className="flex justify-end gap-2"><button type="button" className="p-button-secondary" disabled={saving} onClick={() => setEditing(false)}>{tr('Cancel', 'Ghairi')}</button><button type="submit" className="p-button" disabled={saving}>{saving ? tr('Saving…', 'Inahifadhi…') : tr('Save profile', 'Hifadhi wasifu')}</button></div></form></div>}
+  </div>;
 };

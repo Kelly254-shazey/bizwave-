@@ -14,7 +14,7 @@ export const LegalPage: React.FC<{ mode: 'privacy' | 'terms' }> = ({ mode }) => 
             : 'Clear Terms Built for Kenyan SMEs.'}
         </h1>
         <div className="teal-bar mt-4" />
-        <p className="mt-3 text-xs text-slate-400">Effective Date: November 2026 · Republic of Kenya (Kenya Data Protection Act, 2019)</p>
+        <p className="mt-3 text-xs text-amber-300">Draft informational text — legal review and approved policies are required before publication.</p>
       </div>
 
       {/* Plain-English Trust Highlights */}
@@ -22,8 +22,8 @@ export const LegalPage: React.FC<{ mode: 'privacy' | 'terms' }> = ({ mode }) => 
         {[
           { icon: Database, title: '100% Ownership', desc: 'Your spreadsheets, sales, and customer records remain strictly your property.' },
           { icon: Lock, title: 'Tenant Isolation', desc: 'PostgreSQL Row-Level Security isolates every business at the database layer.' },
-          { icon: ShieldCheck, title: 'Non-Custodial', desc: 'No customer money passes through BizWave — only subscription & service fees.' },
-          { icon: UserCheck, title: 'Consent First', desc: 'BizWave Connect enforces explicit per-channel opt-in under Kenya DPA 2019.' },
+          { icon: ShieldCheck, title: 'No Online Payments', desc: 'Customer payments and platform billing are not processed in this release.' },
+          { icon: UserCheck, title: 'Consent Records', desc: 'Record channel-specific marketing consent; outbound messaging is not connected.' },
         ].map((card) => (
           <div key={card.title} className="slide-card rounded-xl p-4 space-y-2">
             <card.icon className="w-5 h-5 text-[#2ED3C2]" />
@@ -36,29 +36,29 @@ export const LegalPage: React.FC<{ mode: 'privacy' | 'terms' }> = ({ mode }) => 
       {mode === 'privacy' ? (
         <div className="slide-card rounded-2xl p-6 sm:p-8 space-y-4 text-sm text-slate-300 leading-relaxed">
           <p>
-            BizWave Technologies Ltd processes business and customer records strictly as a Data Processor on behalf of registered Kenyan SME organizations (Data Controllers) in compliance with the <strong className="text-white">Kenya Data Protection Act, 2019</strong>.
+            Business and customer records can include personal information. The operator should identify the actual data controller and processor, describe retention and subprocessors, and approve a complete privacy policy with qualified counsel before launch.
           </p>
           <h2 className="text-base font-bold text-[#2ED3C2] pt-2">1. Database-Enforced Isolation &amp; Encryption</h2>
           <p>
-            Every tenant record is protected by PostgreSQL Forced Row-Level Security (RLS), transaction-scoped tenant context, Argon2id password hashing, rotating refresh tokens, AES-256-GCM encryption for integration credentials, and tamper-evident audit trails.
+            Tenant-scoped tables use PostgreSQL row-level security and application authorization. The platform also includes password hashing, refresh sessions, encrypted integration credentials and an audit chain. These controls do not themselves establish legal compliance.
           </p>
           <h2 className="text-base font-bold text-[#2ED3C2] pt-2">2. Non-Custodial Analytics &amp; Customer Consent</h2>
           <p>
-            BizWave does not process or hold customer payments. Sales and M-Pesa records uploaded by your organization are used solely for analytics, forecasting, and AI decision guidance. Customer outreach through BizWave Connect enforces explicit opt-in consent and supports Kenya DPA access exports.
+            BizWave does not process or hold customer payments in this release. Authorized users can maintain consent records and request a customer-data export. Outbound messaging is not connected; data-subject requests require an operator-managed review.
           </p>
         </div>
       ) : (
         <div className="slide-card rounded-2xl p-6 sm:p-8 space-y-4 text-sm text-slate-300 leading-relaxed">
           <p>
-            These Terms govern your organization&apos;s access to the BizWave SaaS platform: BizWave Analytics, BizWave Predict, BizWave AI, and BizWave Connect.
+            This is draft product information, not an approved customer agreement. The operator should publish reviewed terms appropriate to the actual service before launch.
           </p>
           <h2 className="text-base font-bold text-[#2ED3C2] pt-2">1. Ownership &amp; Portability of Business Data</h2>
           <p>
-            Your organization retains full ownership of all uploaded spreadsheets, sales records, financial logs, inventory counts, and customer records. You may export your data at any time.
+            Your organization controls the business data it enters. Specific reports and customer-data exports are available to authorized users; a complete self-service export is not represented here.
           </p>
           <h2 className="text-base font-bold text-[#2ED3C2] pt-2">2. Scope of Payments</h2>
           <p>
-            No customer payments pass through BizWave. Billing applies exclusively to BizWave SaaS subscription fees and optional BizWave platform services (onboarding, data cleaning, communication bundles, integrations, and custom BI).
+            No customer payments pass through BizWave. Online subscription changes, add-on purchases and platform payment collection are not available yet.
           </p>
           <h2 className="text-base font-bold text-[#2ED3C2] pt-2">3. Forecasts &amp; AI Decision Support</h2>
           <p>

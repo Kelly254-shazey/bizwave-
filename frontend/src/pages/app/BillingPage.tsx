@@ -5,12 +5,11 @@ import { useAuth } from '../../stores/authStore';
 import { formatKes } from '../../i18n/translations';
 
 export const BillingPage: React.FC = () => {
-  const { activeOrg, hasPermission, refreshSession } = useAuth();
+  const { activeOrg, hasPermission } = useAuth();
   const [billing, setBilling] = useState<any | null>(null);
   const [usage, setUsage] = useState<any | null>(null);
   const [audit, setAudit] = useState<any | null>(null);
   const [showAudit, setShowAudit] = useState(false);
-  const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
 
   const load = async () => {
@@ -32,29 +31,6 @@ export const BillingPage: React.FC = () => {
     load();
   }, [activeOrg?.id]);
 
-  const switchPlan = async (planCode: string) => {
-    setErr('');
-    setMsg('');
-    try {
-      await apiRequest('/subscriptions', { method: 'POST', body: { planCode } });
-      await refreshSession();
-      setMsg(`BizWave subscription plan updated to ${planCode.toUpperCase()}. Workspace capabilities refreshed.`);
-      load();
-    } catch (e: any) {
-      setErr(e.message);
-    }
-  };
-
-  const activateAddOn = async (addOnCode: string) => {
-    try {
-      await apiRequest('/subscriptions/add-ons', { method: 'POST', body: { addOnCode, quantity: 1 } });
-      setMsg(`Platform service add-on '${addOnCode}' added to your BizWave subscription.`);
-      load();
-    } catch (e: any) {
-      setErr(e.message);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -62,7 +38,7 @@ export const BillingPage: React.FC = () => {
           <div className="text-xs font-bold uppercase tracking-wider text-teal-600">Transparent Plan &amp; Add-On Control</div>
           <h1 className="mt-1 text-2xl font-extrabold text-navy-950">BizWave Subscription &amp; Platform Services</h1>
           <p className="text-sm text-slate-500">
-            Manage your monthly KES plan, usage limits, and optional BizWave add-on services — with zero customer payments handled here.
+            Review your KES plan, usage limits, and optional services. Online plan changes and purchases are not available yet.
           </p>
         </div>
       </div>
@@ -71,11 +47,10 @@ export const BillingPage: React.FC = () => {
       <div className="p-4 rounded-2xl bg-[#041527] text-white border border-[#2ED3C2]/30 flex items-start gap-3">
         <ShieldCheck className="w-5 h-5 text-[#2ED3C2] shrink-0 mt-0.5" />
         <div className="text-xs sm:text-sm text-slate-200 leading-relaxed">
-          <strong className="text-[#2ED3C2]">Platform Billing Only:</strong> The <strong>only</strong> payments processed in BizWave are your <strong>BizWave subscription fee</strong> and optional <strong>BizWave platform services</strong> (SMS/WhatsApp/Voice/USSD bundles, onboarding, data cleaning, custom BI). Your customers never pay through BizWave — all sales, M-Pesa, stock, and expense entries in your portal are strictly for recording, analysis, and decision making.
+          <strong className="text-[#2ED3C2]">Billing is not connected yet:</strong> Plan information is shown for reference. Online plan changes, add-on purchases and payment collection are not available in this release; no payment is taken here. Customer sales and M-Pesa entries are records for analysis, not payment processing.
         </div>
       </div>
 
-      {msg && <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs font-medium">{msg}</div>}
       {err && <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">{err}</div>}
 
       {/* Usage Quotas */}
@@ -144,10 +119,11 @@ export const BillingPage: React.FC = () => {
                 {hasPermission('billing:manage') && !isCurrent && (
                   <button
                     type="button"
-                    onClick={() => switchPlan(plan.code)}
-                    className="mt-5 w-full py-2.5 rounded-xl bg-slate-100 hover:bg-[#041527] hover:text-[#2ED3C2] text-navy-950 text-xs font-bold transition-colors"
+                    disabled
+                    title="Online billing is not connected yet"
+                    className="mt-5 w-full py-2.5 rounded-xl bg-slate-100 text-slate-500 text-xs font-bold cursor-not-allowed"
                   >
-                    Switch to {plan.name}
+                    Plan changes unavailable
                   </button>
                 )}
               </div>
@@ -162,7 +138,7 @@ export const BillingPage: React.FC = () => {
           <div>
             <h2 className="text-sm font-bold text-navy-950">Optional BizWave Platform Services &amp; Add-Ons (KES)</h2>
             <p className="text-xs text-slate-500">
-              Add communication bundles, onboarding, data cleaning, extra branches, or custom BI services anytime.
+              These services are listed for reference; online purchases are not available yet.
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -179,10 +155,11 @@ export const BillingPage: React.FC = () => {
                 {hasPermission('billing:manage') && (
                   <button
                     type="button"
-                    onClick={() => activateAddOn(ao.code)}
-                    className="py-2 px-3 rounded-lg border border-slate-200 hover:bg-[#041527] hover:text-[#2ED3C2] text-xs font-semibold text-navy-950 transition-colors"
+                    disabled
+                    title="Online billing is not connected yet"
+                    className="py-2 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-500 cursor-not-allowed"
                   >
-                    Add Service
+                    Purchase unavailable
                   </button>
                 )}
               </div>
